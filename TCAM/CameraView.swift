@@ -1,32 +1,21 @@
 //
 //  CameraView.swift
-//  TCAM - Smooth UI Updates
+//  TCAM - Double-Tap Lens Toggles
 //
 
 import SwiftUI
 import AVFoundation
 
-struct LensItem: Identifiable {
-    let id: Int
-    let type: AVCaptureDevice.DeviceType
-    let label: String
-    let baseZoomFactor: CGFloat
-    let digitalMultiplier: CGFloat
-    var isOptical: Bool { digitalMultiplier == 1.0 }
-}
-
 struct CameraView: View {
     @State private var camera: CameraManager = CameraManager()
     @Environment(\.scenePhase) private var scenePhase
     
+    // Tracks double-tap zoom states for wide & tele lenses
+    @State private var wideZoomToggle: CGFloat = 1.0 // Toggles between 1.0 ↔ 2.0
+    @State private var teleZoomToggle: CGFloat = 1.0 // Toggles between 1.0 ↔ 2.0
+    
     private let filters: [TechnicolorProcess] = [.native, .twoStrip, .monopack, .threeStrip]
-    private let lensOptions: [LensItem] = [
-        .init(id: 0, type: .builtInUltraWideCamera, label: "0.5", baseZoomFactor: 1.0, digitalMultiplier: 1.0),
-        .init(id: 1, type: .builtInWideAngleCamera, label: "1", baseZoomFactor: 1.0, digitalMultiplier: 1.0),
-        .init(id: 2, type: .builtInWideAngleCamera, label: "2", baseZoomFactor: 1.0, digitalMultiplier: 2.0),
-        .init(id: 3, type: .builtInTelephotoCamera, label: "5", baseZoomFactor: 1.0, digitalMultiplier: 1.0),
-        .init(id: 4, type: .builtInTelephotoCamera, label: "10", baseZoomFactor: 1.0, digitalMultiplier: 2.0)
-    ]
+    private let exposurePresets: [Float] = [-1.0, 0.0, 1.0]
     
     var body: some View {
         ZStack {
@@ -42,8 +31,14 @@ struct CameraView: View {
             
             VStack {
                 Spacer()
-                ControlPanel(camera: camera, filters: filters, lensOptions: lensOptions)
-                    .padding(.bottom, 8)
+                ControlPanel(
+                    camera: camera,
+                    filters: filters,
+                    exposurePresets: exposurePresets,
+                    wideZoomToggle: $wideZoomToggle,
+                    teleZoomToggle: $teleZoomToggle
+                )
+                .padding(.bottom, 12)
             }
         }
         .background(.black)
@@ -63,50 +58,31 @@ struct CameraView: View {
     }
 }
 
+// MARK: - Control Panel
 private struct ControlPanel: View {
     @Bindable var camera: CameraManager
     let filters: [TechnicolorProcess]
-    let lensOptions: [LensItem]
+    let exposurePresets: [Float]
+    @Binding var wideZoomToggle: CGFloat
+    @Binding var teleZoomToggle: CGFloat
     
     var body: some View {
-        VStack(spacing: 14) {
-            // Permanent Exposure Slider
-            HStack(spacing: 10) {
-                Image(systemName: "sun.min").foregroundStyle(.white.opacity(0.6)).font(.caption)
-                ExposureSlider(bias: camera.exposureBias) { camera.setExposureBias($0) }.frame(maxWidth: 220)
-                Image(systemName: "sun.max").foregroundStyle(.white.opacity(0.6)).font(.caption)
-            }
-            .padding(.vertical, 4)
+        VStack(spacing: 10) {
             
-            // ✅ Smooth Filter Toggle
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(filters) { filter in
-                        FilterButton(title: filter.rawValue.replacingOccurrences(of: "-", with: " "),
-                                     isSelected: camera.currentProcess == filter) {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                camera.updateProcess(filter)
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, 20)
-            }
-            
-            // ✅ Smooth Lens Toggle
+            // 1️⃣ Exposure Toggle (-1 | 0 | +1)
             HStack(spacing: 0) {
-                ForEach(lensOptions) { (lens: LensItem) in
+                ForEach(exposurePresets, id: \.self) { value in
                     Button {
                         withAnimation(.easeInOut(duration: 0.15)) {
-                            camera.switchToLens(type: lens.type, zoom: lens.baseZoomFactor * lens.digitalMultiplier)
+                            camera.setExposureBias(value)
                         }
                     } label: {
-                        Text(lens.label)
-                            .font(.system(size: 13, weight: camera.currentLens == lens.type && abs(camera.currentZoomFactor - (lens.baseZoomFactor * lens.digitalMultiplier)) < 0.15 ? .bold : .medium))
-                            .foregroundStyle(camera.currentLens == lens.type && abs(camera.currentZoomFactor - (lens.baseZoomFactor * lens.digitalMultiplier)) < 0.15 ? .black : .white)
+                        Text(value == 0 ? "0" : (value > 0 ? "+1" : "-1"))
+                            .font(.system(size: 13, weight: isActiveExposure(value) ? .bold : .medium))
+                            .foregroundStyle(isActiveExposure(value) ? .black : .white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
-                            .background(camera.currentLens == lens.type && abs(camera.currentZoomFactor - (lens.baseZoomFactor * lens.digitalMultiplier)) < 0.15 ? Color.amber : .black.opacity(0.5))
+                            .background(isActiveExposure(value) ? Color.amber : .black.opacity(0.5))
                     }
                     .buttonStyle(.plain)
                 }
@@ -115,14 +91,62 @@ private struct ControlPanel: View {
             .clipShape(Capsule())
             .padding(.horizontal, 20)
             
-            // Shutter Row
+            // 2️⃣ Filter Toggles
+            HStack(spacing: 6) {
+                ForEach(filters) { filter in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            camera.updateProcess(filter)
+                        }
+                    } label: {
+                        Text(filter.rawValue.replacingOccurrences(of: "-", with: " "))
+                            .font(.system(size: 10, weight: camera.currentProcess == filter ? .bold : .medium, design: .monospaced))
+                            .foregroundStyle(camera.currentProcess == filter ? .black : .white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(camera.currentProcess == filter ? Color.amber : .black.opacity(0.5))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 20)
+            
+            // 3️⃣ Lens Toggles (0.5 | 1↔2 | 5↔10)
+            HStack(spacing: 0) {
+                // 0.5x (Fixed)
+                lensButton(label: "0.5", type: .builtInUltraWideCamera, zoom: 1.0)
+                
+                // 1x ↔ 2x (Double-tap to toggle)
+                lensButton(label: wideZoomToggle == 1.0 ? "1" : "2", type: .builtInWideAngleCamera, zoom: wideZoomToggle)
+                    .onTapGesture(count: 2) {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            wideZoomToggle = wideZoomToggle == 1.0 ? 2.0 : 1.0
+                            camera.switchToLens(type: .builtInWideAngleCamera, zoom: wideZoomToggle)
+                        }
+                    }
+                
+                // 5x ↔ 10x (Double-tap to toggle)
+                lensButton(label: teleZoomToggle == 1.0 ? "5" : "10", type: .builtInTelephotoCamera, zoom: teleZoomToggle)
+                    .onTapGesture(count: 2) {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            teleZoomToggle = teleZoomToggle == 1.0 ? 2.0 : 1.0
+                            camera.switchToLens(type: .builtInTelephotoCamera, zoom: teleZoomToggle)
+                        }
+                    }
+            }
+            .background(.black.opacity(0.3))
+            .clipShape(Capsule())
+            .padding(.horizontal, 20)
+            
+            // 4️⃣ Shutter Row
             HStack(alignment: .center, spacing: 0) {
                 ThumbnailView(capturedImage: camera.capturedImage).frame(width: 44)
                 Spacer()
                 ShutterButton(isCapturing: camera.isCapturing) { camera.capturePhoto() }
                 Spacer()
                 Button {
-                    camera.isFlashOn.toggle()
+                    withAnimation { camera.isFlashOn.toggle() }
                 } label: {
                     Image(systemName: camera.isFlashOn ? "bolt.fill" : "bolt.slash")
                         .font(.title2)
@@ -136,27 +160,34 @@ private struct ControlPanel: View {
             .padding(.bottom, 4)
         }
     }
-}
-
-struct FilterButton: View {
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
     
-    var body: some View {
-        Button(action: action) {
-            Text(title.uppercased())
-                .font(.system(size: 10, weight: isSelected ? .bold : .medium, design: .monospaced))
-                .foregroundStyle(isSelected ? .black : .white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(isSelected ? Color.amber : .black.opacity(0.5))
-                .clipShape(Capsule())
+    @ViewBuilder
+    private func lensButton(label: String, type: AVCaptureDevice.DeviceType, zoom: CGFloat) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                camera.switchToLens(type: type, zoom: zoom)
+            }
+        } label: {
+            Text(label)
+                .font(.system(size: 13, weight: isLensActive(type, zoom) ? .bold : .medium))
+                .foregroundStyle(isLensActive(type, zoom) ? .black : .white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background(isLensActive(type, zoom) ? Color.amber : .black.opacity(0.5))
         }
         .buttonStyle(.plain)
     }
+    
+    private func isActiveExposure(_ value: Float) -> Bool {
+        abs(camera.exposureBias - value) < 0.05
+    }
+    
+    private func isLensActive(_ type: AVCaptureDevice.DeviceType, _ zoom: CGFloat) -> Bool {
+        camera.currentLens == type && abs(camera.currentZoomFactor - zoom) < 0.15
+    }
 }
 
+// MARK: - Small Components
 struct ThumbnailView: View {
     let capturedImage: UIImage?
     var body: some View {
@@ -167,5 +198,20 @@ struct ThumbnailView: View {
         .frame(width: 44, height: 44)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.3), lineWidth: 1))
+    }
+}
+
+struct ShutterButton: View {
+    let isCapturing: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle().fill(Color.white).frame(width: 70, height: 70)
+                Circle().stroke(Color.white, lineWidth: 2).frame(width: 78, height: 78)
+            }
+            .opacity(isCapturing ? 0.5 : 1.0)
+        }
+        .buttonStyle(.plain)
     }
 }
