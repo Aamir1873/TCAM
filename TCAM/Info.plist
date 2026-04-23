@@ -63,5 +63,14 @@
     <!-- Photo Library Add Permission -->
     <key>NSPhotoLibraryAddUsageDescription</key>
     <string>TCAM needs permission to save your edited photos to the photo library.</string>
+<key>UISupportedInterfaceOrientations</key>
+<array>
+    <string>UIInterfaceOrientationPortrait</string>
+</array>
+<key>UISupportedInterfaceOrientations~ipad</key>
+<array>
+    <string>UIInterfaceOrientationPortrait</string>
+    <string>UIInterfaceOrientationPortraitUpsideDown</string>
+</array>
 </dict>
 </plist>

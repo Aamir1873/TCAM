@@ -32,7 +32,7 @@ final class CameraManager {
     var timerMode: TimerMode = .off
     var timerCountdown: Int? = nil
     var currentLens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera
-
+    var currentZoomFactor: CGFloat = 1.0
     let session      = AVCaptureSession()
     let engine       = TechnicolorEngine()
 
@@ -165,7 +165,29 @@ final class CameraManager {
             session.startRunning()
         }
     }
-
+    func setZoomFactor(_ factor: CGFloat) {
+        let session = self.session
+        sessionQueue.async { [weak self] in
+            guard let self,
+                  let device = (session.inputs.first as? AVCaptureDeviceInput)?.device else { return }
+            
+            do {
+                try device.lockForConfiguration()
+                let clamped = max(
+                    device.minAvailableVideoZoomFactor,
+                    min(factor, device.maxAvailableVideoZoomFactor)
+                )
+                device.videoZoomFactor = clamped
+                device.unlockForConfiguration()
+                
+                Task { @MainActor [weak self] in
+                    self?.currentZoomFactor = clamped
+                }
+            } catch {
+                print("Zoom error: \(error)")
+            }
+        }
+    }
     // MARK: Lens Toggle
 
     func toggleLens() {
@@ -299,8 +321,8 @@ final class CameraManager {
 /// Isolated from @MainActor. All delegate callbacks are nonisolated.
 /// Holds direct references to outputs to avoid crossing actor boundaries for session management.
 private final class Coordinator: NSObject,
-    @preconcurrency AVCaptureVideoDataOutputSampleBufferDelegate,
-    @preconcurrency AVCapturePhotoCaptureDelegate {
+                                 AVCaptureVideoDataOutputSampleBufferDelegate,
+                                 AVCapturePhotoCaptureDelegate {
 
     let videoOutput = AVCaptureVideoDataOutput()
     let photoOutput = AVCapturePhotoOutput()

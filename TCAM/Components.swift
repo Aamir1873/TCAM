@@ -1,17 +1,11 @@
 //
 //  Components.swift
-//  TCAM
+//  TCAM - Refined UI Components
 //
-//  Reusable UI components:
-//    HUDIconButton, FocusReticle, ExposureSlider, ProcessStrip,
-//    ShutterButton, ZoomIndicator, FilmFrameOverlay, GridOverlay,
-//    TimerCountdownOverlay, ProcessPickerOverlay, ProcessRow,
-//    PermissionDeniedView
 
 import SwiftUI
 
 // MARK: - HUD Icon Button
-
 struct HUDIconButton: View {
     let icon: String
     var label: String? = nil
@@ -22,67 +16,106 @@ struct HUDIconButton: View {
         Button(action: action) {
             Group {
                 if let label {
-                    VStack(spacing: 1) {
-                        Image(systemName: icon).font(.system(size: 16, weight: .semibold))
-                        Text(label).font(.system(size: 9, weight: .bold, design: .monospaced))
+                    VStack(spacing: 2) {
+                        Image(systemName: icon)
+                            .font(.system(size: 15, weight: .semibold))
+                        Text(label)
+                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .textCase(.uppercase)
                     }
                 } else {
-                    Image(systemName: icon).font(.system(size: 18, weight: .semibold))
+                    Image(systemName: icon)
+                        .font(.system(size: 17, weight: .semibold))
                 }
             }
             .foregroundStyle(isOn ? Color.amber : .white)
-            .frame(width: 44, height: 44)
-            .glassEffect(.regular.interactive(), in: Circle())
+            .frame(width: 42, height: 42)
+            .background(
+                Circle()
+                    .fill(.black.opacity(0.45))
+                    .overlay(Circle().stroke(.white.opacity(isOn ? 0.4 : 0.2), lineWidth: 1))
+            )
+            .contentShape(Circle())
         }
+        .buttonStyle(.plain)
+        .scaleEffect(isOn ? 1.05 : 1.0)
+        .animation(.easeInOut(duration: 0.15), value: isOn)
     }
 }
 
 // MARK: - Focus Reticle
-
 struct FocusReticle: View {
     let position: CGPoint
-    @State private var scale: CGFloat = 1.4
+    @State private var scale: CGFloat = 1.3
     @State private var opacity: Double = 0
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 3)
-            .stroke(Color.amber, lineWidth: 1.5)
-            .frame(width: 70, height: 70)
-            .scaleEffect(scale)
-            .opacity(opacity)
-            .position(position)
-            .onAppear {
-                withAnimation(.spring(duration: 0.25)) { scale = 1.0; opacity = 1.0 }
+        ZStack {
+            Circle()
+                .stroke(Color.amber.opacity(0.6), lineWidth: 1.5)
+                .frame(width: 80, height: 80)
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(Color.amber, lineWidth: 2)
+                .frame(width: 60, height: 60)
+        }
+        .scaleEffect(scale)
+        .opacity(opacity)
+        .position(position)
+        .onAppear {
+            withAnimation(.spring(duration: 0.3, bounce: 0.2)) {
+                scale = 1.0
+                opacity = 1.0
             }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                withAnimation(.easeOut(duration: 0.4)) {
+                    opacity = 0
+                }
+            }
+        }
     }
 }
 
 // MARK: - Exposure Slider
-
 struct ExposureSlider: View {
     let bias: Float
     let onChange: (Float) -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "sun.min").font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+        HStack(spacing: 12) {
+            Image(systemName: "sun.min")
+                .font(.system(size: 13))
+                .foregroundStyle(.white.opacity(0.5))
+            
             Slider(
                 value: Binding(get: { Double(bias) }, set: { onChange(Float($0)) }),
                 in: -3...3, step: 0.1
-            ).tint(.amber)
-            Image(systemName: "sun.max").font(.system(size: 16)).foregroundStyle(.white.opacity(0.5))
+            )
+            .tint(.amber)
+            .frame(width: 180)
+            
             Text(String(format: "%+.1f", bias))
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundStyle(.amber)
-                .frame(width: 38, alignment: .trailing)
+                .frame(width: 42, alignment: .trailing)
+            
+            Image(systemName: "sun.max")
+                .font(.system(size: 14))
+                .foregroundStyle(.white.opacity(0.5))
         }
-        .padding(.horizontal, 16).padding(.vertical, 12)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(.black.opacity(0.7))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(.white.opacity(0.15), lineWidth: 1)
+                )
+        )
     }
 }
 
 // MARK: - Process Strip
-
 struct ProcessStrip: View {
     let selected: TechnicolorProcess
     let onSelect: (TechnicolorProcess) -> Void
@@ -90,24 +123,33 @@ struct ProcessStrip: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     ForEach(TechnicolorProcess.allCases) { process in
-                        Button { onSelect(process) } label: {
+                        Button {
+                            withAnimation(.spring(duration: 0.2)) {
+                                onSelect(process)
+                            }
+                        } label: {
                             Text(process.rawValue)
-                                .font(.system(size: 11, weight: .black, design: .monospaced))
-                                .foregroundStyle(selected == process ? .black : .white)
-                                .padding(.horizontal, 14).padding(.vertical, 7)
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundStyle(selected == process ? .black : .white.opacity(0.85))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 6)
                                 .background(
-                                    selected == process ? Color.amber : Color.white.opacity(0.12),
-                                    in: Capsule()
+                                    Capsule()
+                                        .fill(selected == process ? Color.amber : .white.opacity(0.12))
+                                        .overlay(
+                                            Capsule()
+                                                .stroke(selected == process ? Color.clear : .white.opacity(0.2), lineWidth: 1)
+                                        )
                                 )
-                                .animation(.spring(duration: 0.25), value: selected)
+                                .contentTransition(.numericText())
                         }
-                        .sensoryFeedback(.selection, trigger: selected == process)
+                        .buttonStyle(.plain)
                         .id(process.id)
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 4)
             }
             .onChange(of: selected) { _, newValue in
                 withAnimation { proxy.scrollTo(newValue.id, anchor: .center) }
@@ -117,14 +159,13 @@ struct ProcessStrip: View {
 }
 
 // MARK: - Shutter Button
-
 struct ShutterButton: View {
     let isCapturing: Bool
     let timerCountdown: Int?
     let timerTotal: Int
     let action: () -> Void
 
-    @State private var pressed = false
+    @State private var isPressed = false
 
     private var timerProgress: Double {
         guard let c = timerCountdown, timerTotal > 0 else { return 0 }
@@ -136,25 +177,35 @@ struct ShutterButton: View {
             ZStack {
                 if timerCountdown != nil {
                     Circle()
-                        .stroke(Color.amber.opacity(0.25), lineWidth: 4)
+                        .stroke(Color.amber.opacity(0.2), lineWidth: 3)
                         .frame(width: 88, height: 88)
                     Circle()
                         .trim(from: 0, to: timerProgress)
-                        .stroke(Color.amber, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                        .stroke(Color.amber, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                         .frame(width: 88, height: 88)
                         .rotationEffect(.degrees(-90))
                         .animation(.linear(duration: 1), value: timerProgress)
                 }
-                Circle().stroke(.white, lineWidth: 3).frame(width: 80, height: 80)
+                
+                Circle()
+                    .stroke(.white.opacity(0.9), lineWidth: 2.5)
+                    .frame(width: 82, height: 82)
+                
                 Circle()
                     .fill(isCapturing ? Color.amber : .white)
-                    .frame(width: 66, height: 66)
-                    .scaleEffect(pressed ? 0.88 : 1.0)
-                    .animation(.spring(duration: 0.18), value: pressed)
+                    .frame(width: 68, height: 68)
+                    .scaleEffect(isPressed ? 0.92 : 1.0)
+                    .shadow(
+                        color: isCapturing ? .amber.opacity(0.5) : .black.opacity(0.3),
+                        radius: isPressed ? 4 : 8,
+                        y: isPressed ? 2 : 4
+                    )
+                
                 if let c = timerCountdown, c > 0 {
                     Text("\(c)")
-                        .font(.system(size: 22, weight: .black, design: .monospaced))
-                        .foregroundStyle(Color.amber)
+                        .font(.system(size: 24, weight: .black, design: .monospaced))
+                        .foregroundStyle(.black)
+                        .shadow(color: .white.opacity(0.8), radius: 2)
                 }
             }
         }
@@ -162,88 +213,66 @@ struct ShutterButton: View {
         .sensoryFeedback(.impact(weight: .medium), trigger: isCapturing)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { _ in pressed = true }
-                .onEnded   { _ in pressed = false }
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in
+                    withAnimation(.spring(duration: 0.2)) { isPressed = false }
+                }
         )
     }
 }
 
-// MARK: - Zoom Indicator
-
-struct ZoomIndicator: View {
-    let zoom: CGFloat
-    let onTap: () -> Void
-
-    private var label: String {
-        zoom < 1.05 ? "1×" :
-        zoom < 2.05 ? String(format: "%.1f×", zoom) :
-                      String(format: "%.0f×",  zoom)
-    }
-
-    var body: some View {
-        Button(action: onTap) {
-            Text(label)
-                .font(.system(size: 13, weight: .bold, design: .monospaced))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 14).padding(.vertical, 6)
-                .glassEffect(.regular.interactive(), in: Capsule())
-                .contentTransition(.numericText())
-                .animation(.spring(duration: 0.2), value: zoom)
-        }
-    }
-}
-
-// MARK: - Film Frame Overlay
-
+// MARK: - Film Frame Overlay (Subtle)
 struct FilmFrameOverlay: View {
     var body: some View {
         Canvas { context, size in
-            let w = size.width, h = size.height
-            let sh: CGFloat = 28
-            let strip   = Color.black.opacity(0.72)
-            let hole    = Color.white.opacity(0.12)
-            let bracket = Color.white.opacity(0.6)
-
-            context.fill(Path(CGRect(x: 0, y: 0,      width: w, height: sh)), with: .color(strip))
-            context.fill(Path(CGRect(x: 0, y: h - sh, width: w, height: sh)), with: .color(strip))
-
-            let hW: CGFloat = 14, hH: CGFloat = 10, sp: CGFloat = 28
-            let count  = Int(w / sp) + 1
-            let startX = (w - CGFloat(count - 1) * sp) / 2
+            let stripHeight: CGFloat = 24
+            let stripColor = Color.black.opacity(0.4)
+            let holeColor = Color.white.opacity(0.15)
+            
+            context.fill(Path(CGRect(x: 0, y: 0, width: size.width, height: stripHeight)), with: .color(stripColor))
+            context.fill(Path(CGRect(x: 0, y: size.height - stripHeight, width: size.width, height: stripHeight)), with: .color(stripColor))
+            
+            let holeWidth: CGFloat = 10, holeHeight: CGFloat = 8, spacing: CGFloat = 32
+            let count = Int(size.width / spacing) + 1
+            let startX = (size.width - CGFloat(count - 1) * spacing) / 2
+            
             for i in 0..<count {
-                let x = startX + CGFloat(i) * sp - hW / 2
-                context.fill(Path(roundedRect: CGRect(x: x, y: (sh - hH) / 2,          width: hW, height: hH), cornerRadius: 2), with: .color(hole))
-                context.fill(Path(roundedRect: CGRect(x: x, y: h - sh + (sh - hH) / 2, width: hW, height: hH), cornerRadius: 2), with: .color(hole))
-            }
-
-            let bL: CGFloat = 28, bT: CGFloat = 2.5, m: CGFloat = sh + 10
-            for (ox, oy, sx, sy) in [(14.0, m, 1.0, 1.0), (w - 14, m, -1.0, 1.0),
-                                      (14.0, h - m, 1.0, -1.0), (w - 14, h - m, -1.0, -1.0)] {
-                context.fill(Path(CGRect(x: ox, y: oy - (sy < 0 ? bT : 0), width: bL * sx, height: bT     )), with: .color(bracket))
-                context.fill(Path(CGRect(x: ox, y: oy - (sy < 0 ? bL : 0), width: bT,      height: bL * sy)), with: .color(bracket))
+                let x = startX + CGFloat(i) * spacing - holeWidth / 2
+                context.fill(Path(roundedRect: CGRect(x: x, y: (stripHeight - holeHeight) / 2, width: holeWidth, height: holeHeight), cornerRadius: 2), with: .color(holeColor))
+                context.fill(Path(roundedRect: CGRect(x: x, y: size.height - stripHeight + (stripHeight - holeHeight) / 2, width: holeWidth, height: holeHeight), cornerRadius: 2), with: .color(holeColor))
             }
         }
+        .allowsHitTesting(false)
     }
 }
 
-// MARK: - Grid Overlay (rule of thirds)
-
+// MARK: - Grid Overlay
 struct GridOverlay: View {
     var body: some View {
         Canvas { context, size in
-            let line = Color.white.opacity(0.2)
+            let lineColor = Color.white.opacity(0.25)
+            let lineWidth: CGFloat = 0.75
+            
             for i in 1...2 {
-                let x = size.width  * CGFloat(i) / 3
+                let x = size.width * CGFloat(i) / 3
                 let y = size.height * CGFloat(i) / 3
-                context.stroke(Path { p in p.move(to: .init(x: x, y: 0));          p.addLine(to: .init(x: x, y: size.height)) }, with: .color(line), lineWidth: 0.5)
-                context.stroke(Path { p in p.move(to: .init(x: 0, y: y));          p.addLine(to: .init(x: size.width, y: y))  }, with: .color(line), lineWidth: 0.5)
+                
+                context.stroke(Path { p in
+                    p.move(to: .init(x: x, y: 0))
+                    p.addLine(to: .init(x: x, y: size.height))
+                }, with: .color(lineColor), lineWidth: lineWidth)
+                
+                context.stroke(Path { p in
+                    p.move(to: .init(x: 0, y: y))
+                    p.addLine(to: .init(x: size.width, y: y))
+                }, with: .color(lineColor), lineWidth: lineWidth)
             }
         }
+        .allowsHitTesting(false)
     }
 }
 
 // MARK: - Timer Countdown Overlay
-
 struct TimerCountdownOverlay: View {
     let count: Int
     let onCancel: () -> Void
@@ -267,52 +296,83 @@ struct TimerCountdownOverlay: View {
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 24).padding(.vertical, 10)
-                    .glassEffect(.regular.interactive(), in: Capsule())
+                    .background(
+                        Capsule()
+                            .fill(.black.opacity(0.6))
+                            .overlay(Capsule().stroke(.white.opacity(0.3), lineWidth: 1))
+                    )
             }
         }
     }
 }
 
-// MARK: - Process Picker Sheet
-
+// MARK: - Process Picker Overlay
 struct ProcessPickerOverlay: View {
     let selected: TechnicolorProcess
     @Binding var isShowing: Bool
     let onSelect: (TechnicolorProcess) -> Void
-    @GestureState private var dragY: CGFloat = 0
+    @GestureState private var dragOffset: CGFloat = 0
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Color.black.opacity(0.55).ignoresSafeArea()
+            Color.black.opacity(0.6)
+                .ignoresSafeArea()
                 .onTapGesture { withAnimation { isShowing = false } }
+                .transition(.opacity)
 
             VStack(spacing: 0) {
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(.white.opacity(0.3))
-                    .frame(width: 40, height: 4)
-                    .padding(.top, 12).padding(.bottom, 20)
-                Text("SELECT PROCESS")
-                    .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .padding(.bottom, 16)
-                ForEach(TechnicolorProcess.allCases) { process in
-                    ProcessRow(process: process, isSelected: selected == process) {
-                        withAnimation(.spring(duration: 0.25)) { onSelect(process); isShowing = false }
+                    .fill(.white.opacity(0.4))
+                    .frame(width: 48, height: 4)
+                    .padding(.top, 14)
+                    .padding(.bottom, 20)
+                
+                Text("TECHNICOLOR PROCESS")
+                    .font(.system(size: 11, weight: .heavy, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .textCase(.uppercase)
+                    .padding(.bottom, 8)
+                
+                ScrollView {
+                    VStack(spacing: 4) {
+                        ForEach(TechnicolorProcess.allCases) { process in
+                            ProcessRow(process: process, isSelected: selected == process) {
+                                withAnimation(.spring(duration: 0.25)) {
+                                    onSelect(process)
+                                    isShowing = false
+                                }
+                            }
+                        }
                     }
+                    .padding(.vertical, 4)
                 }
-                Spacer().frame(height: 40)
+                
+                Spacer().frame(height: 24)
             }
             .frame(maxWidth: .infinity)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(.white.opacity(0.1), lineWidth: 1))
-            .padding(.horizontal, 12).padding(.bottom, 8)
-            .offset(y: max(0, dragY))
+            .background(
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(.black.opacity(0.85))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24)
+                            .stroke(.white.opacity(0.15), lineWidth: 1)
+                    )
+            )
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            .offset(y: dragOffset)
             .gesture(
                 DragGesture()
-                    .updating($dragY) { v, s, _ in s = v.translation.height }
-                    .onEnded { v in if v.translation.height > 80 { withAnimation { isShowing = false } } }
+                    .updating($dragOffset) { val, state, _ in
+                        state = max(0, val.translation.height)
+                    }
+                    .onEnded { val in
+                        if val.translation.height > 100 || val.velocity.height > 800 {
+                            withAnimation { isShowing = false }
+                        }
+                    }
             )
+            .transition(.move(edge: .bottom))
         }
         .ignoresSafeArea()
     }
@@ -353,7 +413,6 @@ struct ProcessRow: View {
 }
 
 // MARK: - Permission Denied View
-
 struct PermissionDeniedView: View {
     @Environment(\.openURL) private var openURL
 
