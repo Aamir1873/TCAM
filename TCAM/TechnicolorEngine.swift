@@ -1,6 +1,6 @@
 //
 //  TechnicolorEngine.swift
-//  TCAM - Balanced Color Profiles + Native Mode
+//  TCAM
 //
 
 import CoreImage
@@ -16,23 +16,19 @@ final class TechnicolorEngine: Sendable {
         ])
     }()
 
-    // MARK: - Three-Strip Filters
     nonisolated(unsafe) private let ccThree  = CIFilter.colorControls()
     nonisolated(unsafe) private let cmThree  = CIFilter.colorMatrix()
     nonisolated(unsafe) private let vigThree = CIFilter.vignette()
 
-    // MARK: - Two-Strip Filters
     nonisolated(unsafe) private let cmTwo    = CIFilter.colorMatrix()
     nonisolated(unsafe) private let ccTwo    = CIFilter.colorControls()
     nonisolated(unsafe) private let vigTwo   = CIFilter.vignette()
 
-    // MARK: - Monopack Filters
     nonisolated(unsafe) private let ccMono   = CIFilter.colorControls()
     nonisolated(unsafe) private let cmMono   = CIFilter.colorMatrix()
     nonisolated(unsafe) private let gamMono  = CIFilter(name: "CIGammaAdjust")
     nonisolated(unsafe) private let vigMono  = CIFilter.vignette()
 
-    // MARK: - Halation (bloom) filters
     nonisolated(unsafe) private let blurFilter   = CIFilter.gaussianBlur()
     nonisolated(unsafe) private let blurMultiply = CIFilter(name: "CIMultiplyCompositing")!
     nonisolated(unsafe) private let blurColorMat = CIFilter.colorMatrix()
@@ -77,7 +73,7 @@ final class TechnicolorEngine: Sendable {
         case .threeStrip: threeStrip(image)
         case .twoStrip:   twoStrip(image)
         case .monopack:   monopack(image)
-        case .native:     image  // ✅ Zero processing — return raw image
+        case .native:     image
         }
     }
 

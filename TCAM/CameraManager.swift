@@ -1,6 +1,6 @@
 //
 //  CameraManager.swift
-//  TCAM - Minimal, Timer/Flip Free
+//  TCAM
 //
 
 import SwiftUI
@@ -26,7 +26,9 @@ final class CameraManager {
     var showSavedBanner = false
     var exposureBias: Float = 0.0
     
-    // Locked to back camera (no flip)
+    // ✅ Fixed: Marked nonisolated(unsafe) to allow safe read from nonisolated Coordinator
+    @ObservationIgnored nonisolated(unsafe) var watermarkEnabled = true
+    
     let cameraPosition: AVCaptureDevice.Position = .back
     var currentLens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera
     var currentZoomFactor: CGFloat = 1.0
@@ -49,7 +51,6 @@ final class CameraManager {
         sessionQueue.async { [weak self] in self?.session.stopRunning() }
     }
 
-    // MARK: - Permissions
     func requestPermissions() async {
         #if targetEnvironment(simulator)
         print("⚠️ Simulator: Enable Virtual Camera in Settings → Developer or test on real hardware.")
@@ -71,7 +72,6 @@ final class CameraManager {
         photoPermissionGranted = (photoStatus == .authorized || photoStatus == .limited)
     }
 
-    // MARK: - Session Configuration
     private func configureAndStartSession() async {
         let position = self.cameraPosition
         let lens     = self.currentLens
@@ -124,7 +124,6 @@ final class CameraManager {
         }
     }
 
-    // MARK: - Input Discovery
     @discardableResult
     private func addInput(session: AVCaptureSession, position: AVCaptureDevice.Position, preferredLens: AVCaptureDevice.DeviceType) -> Bool {
         let deviceTypes: [AVCaptureDevice.DeviceType] = position == .back
@@ -148,7 +147,6 @@ final class CameraManager {
         return true
     }
 
-    // MARK: - Lens Switching
     func toggleLens() {
         let available = AVCaptureDevice.DiscoverySession(
             deviceTypes: [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera],
@@ -191,7 +189,6 @@ final class CameraManager {
         }
     }
 
-    // MARK: - Zoom & Capture
     func setZoomFactor(_ factor: CGFloat) {
         sessionQueue.async { [weak self] in
             guard let self,
@@ -218,7 +215,7 @@ final class CameraManager {
         let photoOutput = coordinator.photoOutput
         let settings = AVCapturePhotoSettings()
         settings.flashMode = isFlashOn ? .on : .off
-        settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions // iOS 16+
+        settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
         
         photoOutput.capturePhoto(with: settings, delegate: coordinator)
     }
@@ -264,7 +261,7 @@ private final class Coordinator: NSObject, AVCaptureVideoDataOutputSampleBufferD
     nonisolated func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         guard error == nil,
               let data = photo.fileDataRepresentation(),
-              let ciSource = CIImage(data: data)else {
+              let ciSource = CIImage( data: data) else {
             Task { @MainActor [weak manager] in manager?.isCapturing = false }
             return
         }
@@ -277,15 +274,20 @@ private final class Coordinator: NSObject, AVCaptureVideoDataOutputSampleBufferD
         }
 
         let orientation = UIImage.Orientation.fromCG(photo.metadata[kCGImagePropertyOrientation as String] as? UInt32 ?? 1)
-        let final = UIImage(cgImage: cg, scale: 1.0, orientation: orientation)
+        let originalImage = UIImage(cgImage: cg, scale: 1.0, orientation: orientation)
+        
+        // ✅ Safe read of nonisolated(unsafe) flag
+        let isEnabled = manager?.watermarkEnabled ?? true
+        let finalImage = PhotoWatermarker.apply(to: originalImage, metadata: photo.metadata, isEnabled: isEnabled)
 
         Task { @MainActor [weak manager] in
             guard let manager else { return }
             manager.isCapturing = false
-            manager.capturedImage = final
+            manager.capturedImage = finalImage
+            
             guard manager.photoPermissionGranted else { return }
             PHPhotoLibrary.shared().performChanges({
-                let req = PHAssetChangeRequest.creationRequestForAsset(from: final)
+                let req = PHAssetChangeRequest.creationRequestForAsset(from: finalImage)
                 req.creationDate = Date()
             }) { ok, _ in
                 guard ok else { return }

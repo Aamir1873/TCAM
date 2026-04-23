@@ -1,17 +1,15 @@
 //
 //  Models.swift
-//  TCAM - Clean + Extended Zoom
+//  TCAM
 //
 
 import SwiftUI
-
-// MARK: - Technicolor Process
 
 enum TechnicolorProcess: String, CaseIterable, Identifiable {
     case threeStrip = "THREE-STRIP"
     case twoStrip   = "TWO-STRIP"
     case monopack   = "MONOPACK"
-    case native     = "NATIVE"  // ✅ Zero processing, raw sensor feed
+    case native     = "NATIVE"
 
     var id: String { rawValue }
 
@@ -33,8 +31,6 @@ enum TechnicolorProcess: String, CaseIterable, Identifiable {
         }
     }
 }
-
-// MARK: - Timer Mode
 
 enum TimerMode: Int, CaseIterable, Identifiable {
     case off = 0, three = 3, ten = 10
