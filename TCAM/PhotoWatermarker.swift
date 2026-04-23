@@ -8,7 +8,7 @@ import AVFoundation
 
 final class PhotoWatermarker {
     
-    static func apply(to image: UIImage, metadata: [String: Any], isEnabled: Bool) -> UIImage {
+    static func apply(to image: UIImage, meta [String: Any], isEnabled: Bool) -> UIImage {
         guard isEnabled else { return image }
         
         let exif = metadata[kCGImagePropertyExifDictionary as String] as? [String: Any] ?? [:]
