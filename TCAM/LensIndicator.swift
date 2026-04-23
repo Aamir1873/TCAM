@@ -1,4 +1,3 @@
-
 //
 //  LensIndicator.swift
 //  TCAM

@@ -36,20 +36,21 @@ final class CameraManager {
     let session      = AVCaptureSession()
     let engine       = TechnicolorEngine()
 
-    private let videoOutput  = AVCaptureVideoDataOutput()
-    private let photoOutput  = AVCapturePhotoOutput()
     private let sessionQueue = DispatchQueue(label: "tc.session", qos: .userInitiated)
     private let filterQueue  = DispatchQueue(label: "tc.filter",  qos: .userInteractive)
     @ObservationIgnored
     private var timerTask: Task<Void, Never>?
-    private var coordinator: Coordinator = Coordinator(engine: TechnicolorEngine(), manager: nil)
 
-    /// Cross-queue cache. MainActor writes, filterQueue reads. Safe via happens-after.
+    /// Inline initialization prevents @Observable from generating an init accessor.
+    /// The placeholder engine is replaced with self.engine in init().
     @ObservationIgnored
+    private var coordinator: Coordinator = Coordinator(engine: TechnicolorEngine())
+
     nonisolated(unsafe) var currentProcessCache: TechnicolorProcess = .threeStrip
 
     init() {
-        coordinator = Coordinator(engine: engine, manager: self)
+        self.coordinator.engine = self.engine
+        self.coordinator.manager = self
     }
 
     deinit {
@@ -235,6 +236,7 @@ final class CameraManager {
         isCapturing = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
+        let photoOutput = coordinator.photoOutput
         let settings: AVCapturePhotoSettings
         if photoOutput.isAppleProRAWEnabled,
            let rawFmt = photoOutput.availableRawPhotoPixelFormatTypes
@@ -303,12 +305,11 @@ private final class Coordinator: NSObject,
     let videoOutput = AVCaptureVideoDataOutput()
     let photoOutput = AVCapturePhotoOutput()
 
-    nonisolated(unsafe) let engine: TechnicolorEngine
+    nonisolated(unsafe) var engine: TechnicolorEngine
     weak var manager: CameraManager?
 
-    init(engine: TechnicolorEngine, manager: CameraManager?) {
+    init(engine: TechnicolorEngine) {
         self.engine = engine
-        self.manager = manager
     }
 
     // MARK: Video frames
@@ -354,7 +355,10 @@ private final class Coordinator: NSObject,
             }
             return
         }
-        let final = UIImage(cgImage: cg)
+
+        // Preserve the original photo orientation metadata
+        let orientation = UIImage.Orientation.fromCG(photo.metadata[kCGImagePropertyOrientation as String] as? UInt32 ?? 1)
+        let final = UIImage(cgImage: cg, scale: 1.0, orientation: orientation)
 
         Task { @MainActor [weak manager] in
             guard let manager else { return }
@@ -373,6 +377,25 @@ private final class Coordinator: NSObject,
                     manager.showSavedBanner = false
                 }
             }
+        }
+    }
+}
+
+
+// MARK: - UIImage Orientation Helper
+
+extension UIImage.Orientation {
+    static func fromCG(_ cgOrientation: UInt32) -> UIImage.Orientation {
+        switch cgOrientation {
+        case 1: return .up
+        case 2: return .upMirrored
+        case 3: return .down
+        case 4: return .downMirrored
+        case 5: return .leftMirrored
+        case 6: return .right
+        case 7: return .rightMirrored
+        case 8: return .left
+        default: return .up
         }
     }
 }
