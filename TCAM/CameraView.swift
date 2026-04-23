@@ -1,6 +1,6 @@
 //
 //  CameraView.swift
-//  TCAM - Double-Tap Lens Toggles
+//  TCAM - Double-Tap Lens Toggles (Fixed Zoom Mapping)
 //
 
 import SwiftUI
@@ -10,9 +10,8 @@ struct CameraView: View {
     @State private var camera: CameraManager = CameraManager()
     @Environment(\.scenePhase) private var scenePhase
     
-    // Tracks double-tap zoom states for wide & tele lenses
-    @State private var wideZoomToggle: CGFloat = 1.0 // Toggles between 1.0 ↔ 2.0
-    @State private var teleZoomToggle: CGFloat = 1.0 // Toggles between 1.0 ↔ 2.0
+    @State private var wideZoomToggle: CGFloat = 1.0 // 1.0 ↔ 2.0
+    @State private var teleZoomToggle: CGFloat = 1.0 // 1.0 ↔ 2.0
     
     private let filters: [TechnicolorProcess] = [.native, .twoStrip, .monopack, .threeStrip]
     private let exposurePresets: [Float] = [-1.0, 0.0, 1.0]
@@ -114,24 +113,26 @@ private struct ControlPanel: View {
             
             // 3️⃣ Lens Toggles (0.5 | 1↔2 | 5↔10)
             HStack(spacing: 0) {
-                // 0.5x (Fixed)
-                lensButton(label: "0.5", type: .builtInUltraWideCamera, zoom: 1.0)
+                // 0.5x Ultra Wide
+                lensButton(label: "0.5", type: .builtInUltraWideCamera, avZoom: 0.5, logicalZoom: 0.5)
                 
-                // 1x ↔ 2x (Double-tap to toggle)
-                lensButton(label: wideZoomToggle == 1.0 ? "1" : "2", type: .builtInWideAngleCamera, zoom: wideZoomToggle)
+                // 1x ↔ 2x Wide
+                lensButton(label: wideZoomToggle == 1.0 ? "1" : "2", type: .builtInWideAngleCamera, avZoom: wideZoomToggle, logicalZoom: wideZoomToggle)
                     .onTapGesture(count: 2) {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             wideZoomToggle = wideZoomToggle == 1.0 ? 2.0 : 1.0
-                            camera.switchToLens(type: .builtInWideAngleCamera, zoom: wideZoomToggle)
+                            camera.switchToLens(type: .builtInWideAngleCamera, avZoom: wideZoomToggle, logicalZoom: wideZoomToggle)
                         }
                     }
                 
-                // 5x ↔ 10x (Double-tap to toggle)
-                lensButton(label: teleZoomToggle == 1.0 ? "5" : "10", type: .builtInTelephotoCamera, zoom: teleZoomToggle)
+                // 5x ↔ 10x Telephoto
+                // AVFoundation: 1.0 = optical tele, 2.0 = 2x crop on tele
+                // Logical: 5.0 = 5x equiv, 10.0 = 10x equiv
+                lensButton(label: teleZoomToggle == 1.0 ? "5" : "10", type: .builtInTelephotoCamera, avZoom: teleZoomToggle, logicalZoom: teleZoomToggle * 5.0)
                     .onTapGesture(count: 2) {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             teleZoomToggle = teleZoomToggle == 1.0 ? 2.0 : 1.0
-                            camera.switchToLens(type: .builtInTelephotoCamera, zoom: teleZoomToggle)
+                            camera.switchToLens(type: .builtInTelephotoCamera, avZoom: teleZoomToggle, logicalZoom: teleZoomToggle * 5.0)
                         }
                     }
             }
@@ -162,18 +163,18 @@ private struct ControlPanel: View {
     }
     
     @ViewBuilder
-    private func lensButton(label: String, type: AVCaptureDevice.DeviceType, zoom: CGFloat) -> some View {
+    private func lensButton(label: String, type: AVCaptureDevice.DeviceType, avZoom: CGFloat, logicalZoom: CGFloat) -> some View {
         Button {
             withAnimation(.easeInOut(duration: 0.15)) {
-                camera.switchToLens(type: type, zoom: zoom)
+                camera.switchToLens(type: type, avZoom: avZoom, logicalZoom: logicalZoom)
             }
         } label: {
             Text(label)
-                .font(.system(size: 13, weight: isLensActive(type, zoom) ? .bold : .medium))
-                .foregroundStyle(isLensActive(type, zoom) ? .black : .white)
+                .font(.system(size: 13, weight: isLensActive(logicalZoom) ? .bold : .medium))
+                .foregroundStyle(isLensActive(logicalZoom) ? .black : .white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
-                .background(isLensActive(type, zoom) ? Color.amber : .black.opacity(0.5))
+                .background(isLensActive(logicalZoom) ? Color.amber : .black.opacity(0.5))
         }
         .buttonStyle(.plain)
     }
@@ -182,8 +183,8 @@ private struct ControlPanel: View {
         abs(camera.exposureBias - value) < 0.05
     }
     
-    private func isLensActive(_ type: AVCaptureDevice.DeviceType, _ zoom: CGFloat) -> Bool {
-        camera.currentLens == type && abs(camera.currentZoomFactor - zoom) < 0.15
+    private func isLensActive(_ logicalZoom: CGFloat) -> Bool {
+        abs(camera.logicalZoomFactor - logicalZoom) < 0.15
     }
 }
 
@@ -198,20 +199,5 @@ struct ThumbnailView: View {
         .frame(width: 44, height: 44)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.3), lineWidth: 1))
-    }
-}
-
-struct ShutterButton: View {
-    let isCapturing: Bool
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                Circle().fill(Color.white).frame(width: 70, height: 70)
-                Circle().stroke(Color.white, lineWidth: 2).frame(width: 78, height: 78)
-            }
-            .opacity(isCapturing ? 0.5 : 1.0)
-        }
-        .buttonStyle(.plain)
     }
 }
