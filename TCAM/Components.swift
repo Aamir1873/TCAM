@@ -161,32 +161,18 @@ struct ProcessStrip: View {
 // MARK: - Shutter Button
 struct ShutterButton: View {
     let isCapturing: Bool
-    let timerCountdown: Int?
-    let timerTotal: Int
+
+
     let action: () -> Void
 
     @State private var isPressed = false
 
-    private var timerProgress: Double {
-        guard let c = timerCountdown, timerTotal > 0 else { return 0 }
-        return Double(timerTotal - c) / Double(timerTotal)
-    }
+   
 
     var body: some View {
         Button(action: action) {
             ZStack {
-                if timerCountdown != nil {
-                    Circle()
-                        .stroke(Color.amber.opacity(0.2), lineWidth: 3)
-                        .frame(width: 88, height: 88)
-                    Circle()
-                        .trim(from: 0, to: timerProgress)
-                        .stroke(Color.amber, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                        .frame(width: 88, height: 88)
-                        .rotationEffect(.degrees(-90))
-                        .animation(.linear(duration: 1), value: timerProgress)
-                }
-                
+              
                 Circle()
                     .stroke(.white.opacity(0.9), lineWidth: 2.5)
                     .frame(width: 82, height: 82)
@@ -200,13 +186,7 @@ struct ShutterButton: View {
                         radius: isPressed ? 4 : 8,
                         y: isPressed ? 2 : 4
                     )
-                
-                if let c = timerCountdown, c > 0 {
-                    Text("\(c)")
-                        .font(.system(size: 24, weight: .black, design: .monospaced))
-                        .foregroundStyle(.black)
-                        .shadow(color: .white.opacity(0.8), radius: 2)
-                }
+               
             }
         }
         .buttonStyle(.plain)
@@ -272,39 +252,6 @@ struct GridOverlay: View {
     }
 }
 
-// MARK: - Timer Countdown Overlay
-struct TimerCountdownOverlay: View {
-    let count: Int
-    let onCancel: () -> Void
-    @State private var scale: CGFloat = 1.4
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.3).ignoresSafeArea()
-            VStack(spacing: 24) {
-                Text("\(count)")
-                    .font(.system(size: 120, weight: .black, design: .monospaced))
-                    .foregroundStyle(Color.amber)
-                    .scaleEffect(scale)
-                    .onChange(of: count) { _, _ in
-                        scale = 1.4
-                        withAnimation(.spring(duration: 0.3)) { scale = 1.0 }
-                    }
-                    .onAppear { withAnimation(.spring(duration: 0.3)) { scale = 1.0 } }
-
-                Button("CANCEL", action: onCancel)
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 24).padding(.vertical, 10)
-                    .background(
-                        Capsule()
-                            .fill(.black.opacity(0.6))
-                            .overlay(Capsule().stroke(.white.opacity(0.3), lineWidth: 1))
-                    )
-            }
-        }
-    }
-}
 
 // MARK: - Process Picker Overlay
 struct ProcessPickerOverlay: View {

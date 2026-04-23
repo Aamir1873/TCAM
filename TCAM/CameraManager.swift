@@ -1,6 +1,6 @@
 //
 //  CameraManager.swift
-//  TCAM - Production-Ready AVFoundation
+//  TCAM - Minimal, Timer/Flip Free
 //
 
 import SwiftUI
@@ -19,15 +19,15 @@ final class CameraManager {
     var isCapturing    = false
     @ObservationIgnored
     var currentProcess: TechnicolorProcess = .native
-    var cameraPosition: AVCaptureDevice.Position = .back
+    
     var isFlashOn      = false
     var permissionState: PermissionState = .unknown
     var photoPermissionGranted = false
     var showSavedBanner = false
     var exposureBias: Float = 0.0
-    var showGrid       = false
-    var timerMode: TimerMode = .off
-    var timerCountdown: Int? = nil
+    
+    // Locked to back camera (no flip)
+    let cameraPosition: AVCaptureDevice.Position = .back
     var currentLens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera
     var currentZoomFactor: CGFloat = 1.0
     
@@ -37,11 +37,7 @@ final class CameraManager {
     private let sessionQueue = DispatchQueue(label: "tc.session", qos: .userInitiated)
     private let filterQueue  = DispatchQueue(label: "tc.filter",  qos: .userInteractive)
     @ObservationIgnored
-    private var timerTask: Task<Void, Never>?
-
-    @ObservationIgnored
     private var coordinator: Coordinator = Coordinator(engine: TechnicolorEngine())
-
     nonisolated(unsafe) var currentProcessCache: TechnicolorProcess = .native
 
     init() {
@@ -50,17 +46,13 @@ final class CameraManager {
     }
 
     deinit {
-        timerTask?.cancel()
-        sessionQueue.async { [weak self] in
-            self?.session.stopRunning()
-        }
+        sessionQueue.async { [weak self] in self?.session.stopRunning() }
     }
 
     // MARK: - Permissions
-
     func requestPermissions() async {
         #if targetEnvironment(simulator)
-        print("⚠️ Simulator detected. Enable Virtual Camera in Settings → Developer or test on real device.")
+        print("⚠️ Simulator: Enable Virtual Camera in Settings → Developer or test on real hardware.")
         #endif
 
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -80,55 +72,42 @@ final class CameraManager {
     }
 
     // MARK: - Session Configuration
-
     private func configureAndStartSession() async {
-        let session = self.session
         let position = self.cameraPosition
-        let preferredLens = self.currentLens
+        let lens     = self.currentLens
+        let isFront = position == AVCaptureDevice.Position.front
 
-        await sessionQueue.async { [weak self] in
+        sessionQueue.async { [weak self, position, lens, isFront] in
             guard let self else { return }
             
-            // 🔒 ATOMIC CONFIGURATION BLOCK
-            session.beginConfiguration()
-            defer { session.commitConfiguration() }
-
-            session.sessionPreset = .photo
-
-            // Clear previous
-            session.inputs.forEach { session.removeInput($0) }
-            session.outputs.forEach { session.removeOutput($0) }
-
-            // Add camera input
-            let inputAdded = self.addInput(session: session, position: position, preferredLens: preferredLens)
-            guard inputAdded else {
-                print("❌ Failed to add camera input. Hardware unavailable or mismatched.")
-                return
-            }
-
-            // Video Data Output
-            let coordinator = self.coordinator
-            coordinator.videoOutput.setSampleBufferDelegate(coordinator, queue: self.filterQueue)
-            coordinator.videoOutput.alwaysDiscardsLateVideoFrames = true
-            if session.canAddOutput(coordinator.videoOutput) {
-                session.addOutput(coordinator.videoOutput)
-                coordinator.videoOutput.connection(with: .video)?.videoRotationAngle = 90
-                coordinator.videoOutput.connection(with: .video)?.isVideoMirrored = (position == .front)
-            }
-
-            // Photo Output
-            if session.canAddOutput(coordinator.photoOutput) {
-                session.addOutput(coordinator.photoOutput)
-                coordinator.photoOutput.maxPhotoQualityPrioritization = .quality
-                // ✅ Safe ProRAW gating
-                if coordinator.photoOutput.isAppleProRAWSupported {
-                    coordinator.photoOutput.isAppleProRAWEnabled = false // Disable by default to prevent -16990
+            self.session.beginConfiguration()
+            self.session.sessionPreset = .photo
+            
+            self.session.inputs.forEach { self.session.removeInput($0) }
+            self.session.outputs.forEach { self.session.removeOutput($0) }
+            
+            let inputAdded = self.addInput(session: self.session, position: position, preferredLens: lens)
+            if inputAdded {
+                let coordinator = self.coordinator
+                coordinator.videoOutput.setSampleBufferDelegate(coordinator, queue: self.filterQueue)
+                coordinator.videoOutput.alwaysDiscardsLateVideoFrames = true
+                
+                if self.session.canAddOutput(coordinator.videoOutput) {
+                    self.session.addOutput(coordinator.videoOutput)
+                    coordinator.videoOutput.connection(with: .video)?.videoRotationAngle = 90
+                    coordinator.videoOutput.connection(with: .video)?.isVideoMirrored = isFront
+                }
+                
+                if self.session.canAddOutput(coordinator.photoOutput) {
+                    self.session.addOutput(coordinator.photoOutput)
+                    coordinator.photoOutput.maxPhotoQualityPrioritization = .quality
+                    coordinator.photoOutput.isAppleProRAWEnabled = false
                 }
             }
-
-            // ✅ START RUNNING INSIDE SAME QUEUE, AFTER COMMIT
-            if !session.isRunning {
-                session.startRunning()
+            
+            self.session.commitConfiguration()
+            if !self.session.isRunning {
+                self.session.startRunning()
             }
         }
     }
@@ -146,33 +125,23 @@ final class CameraManager {
     }
 
     // MARK: - Input Discovery
-
     @discardableResult
     private func addInput(session: AVCaptureSession, position: AVCaptureDevice.Position, preferredLens: AVCaptureDevice.DeviceType) -> Bool {
-        // Dynamically discover ONLY lenses that exist on this device
-        var deviceTypes: [AVCaptureDevice.DeviceType]
-        if position == .back {
-            let session = AVCaptureDevice.DiscoverySession(
-                deviceTypes: [.builtInTripleCamera, .builtInDualCamera, .builtInDualWideCamera,
-                              .builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera],
-                mediaType: .video, position: .back
-            )
-            deviceTypes = session.devices.map(\.deviceType).unique()
-        } else {
-            deviceTypes = [.builtInWideAngleCamera]
-        }
-
-        // Prefer requested lens, fallback to first available
-        if deviceTypes.contains(preferredLens) {
-            deviceTypes.insert(preferredLens, at: 0)
+        let deviceTypes: [AVCaptureDevice.DeviceType] = position == .back
+            ? [.builtInTripleCamera, .builtInDualCamera, .builtInDualWideCamera, .builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera]
+            : [.builtInWideAngleCamera]
+        
+        var orderedTypes = deviceTypes
+        if orderedTypes.contains(preferredLens) {
+            orderedTypes.insert(preferredLens, at: 0)
         }
 
         guard let device = AVCaptureDevice.DiscoverySession(
-                  deviceTypes: deviceTypes, mediaType: .video, position: position).devices.first,
+                  deviceTypes: orderedTypes, mediaType: .video, position: position).devices.first,
               let input = try? AVCaptureDeviceInput(device: device),
               session.canAddInput(input)
         else {
-            print("❌ No compatible camera input for \(position) / \(preferredLens)")
+            print("❌ No compatible camera input for \(position)/\(preferredLens)")
             return false
         }
         session.addInput(input)
@@ -180,15 +149,11 @@ final class CameraManager {
     }
 
     // MARK: - Lens Switching
-
     func toggleLens() {
-        guard cameraPosition == .back else { return }
-        
-        // Discover available lenses
         let available = AVCaptureDevice.DiscoverySession(
             deviceTypes: [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera],
             mediaType: .video, position: .back
-        ).devices.map(\.deviceType).unique()
+        ).devices.map(\.deviceType)
 
         guard let currentIndex = available.firstIndex(of: currentLens) else {
             currentLens = available.first ?? .builtInWideAngleCamera
@@ -202,109 +167,60 @@ final class CameraManager {
     }
 
     private func reconfigureForLens() {
-        let lens = currentLens
-        let position = cameraPosition
+        let lens     = self.currentLens
+        let position = self.cameraPosition
+        let isFront = position == AVCaptureDevice.Position.front
 
-        sessionQueue.async { [weak self] in
+        sessionQueue.async { [weak self, lens, isFront] in
             guard let self else { return }
             let coordinator = self.coordinator
             
             self.session.beginConfiguration()
-            defer { self.session.commitConfiguration() }
-
             self.session.inputs.forEach { self.session.removeInput($0) }
             self.addInput(session: self.session, position: position, preferredLens: lens)
-
+            
             if let conn = coordinator.videoOutput.connection(with: .video) {
                 conn.videoRotationAngle = 90
-                conn.isVideoMirrored = (position == .front)
+                conn.isVideoMirrored = isFront
             }
-
-            // Restart if needed
+            self.session.commitConfiguration()
+            
             if !self.session.isRunning {
                 self.session.startRunning()
             }
         }
     }
 
-    // MARK: - Zoom
-
+    // MARK: - Zoom & Capture
     func setZoomFactor(_ factor: CGFloat) {
         sessionQueue.async { [weak self] in
             guard let self,
                   let device = (self.session.inputs.first as? AVCaptureDeviceInput)?.device else { return }
             do {
                 try device.lockForConfiguration()
-                defer { device.unlockForConfiguration() }
-                let clamped = max(device.minAvailableVideoZoomFactor,
-                                  min(factor, device.maxAvailableVideoZoomFactor))
+                let clamped = max(device.minAvailableVideoZoomFactor, min(factor, device.maxAvailableVideoZoomFactor))
                 device.videoZoomFactor = clamped
+                device.unlockForConfiguration()
                 Task { @MainActor [weak self] in self?.currentZoomFactor = clamped }
-            } catch { print("Zoom lock failed: \(error)") }
+            } catch { print("Zoom config failed: \(error)") }
         }
     }
-
-    // MARK: - Capture & Timer (unchanged logic, cleaned up)
 
     func capturePhoto() {
         guard !isCapturing else { return }
-        timerMode == .off ? fireShutter() : startTimer()
-    }
-
-    private func startTimer() {
-        timerTask?.cancel()
-        var remaining = timerMode.rawValue
-        timerCountdown = remaining
-        timerTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                while remaining > 0 {
-                    try await Task.sleep(for: .seconds(1))
-                    remaining -= 1
-                    self.timerCountdown = remaining
-                }
-                self.timerCountdown = nil
-                self.fireShutter()
-            } catch { self.timerCountdown = nil }
-        }
-    }
-
-    func cancelTimer() {
-        timerTask?.cancel(); timerTask = nil; timerCountdown = nil
+        fireShutter()
     }
 
     private func fireShutter() {
         isCapturing = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-
+        
         let photoOutput = coordinator.photoOutput
         let settings = AVCapturePhotoSettings()
-        
         settings.flashMode = isFlashOn ? .on : .off
-        // ✅ iOS 16+ replacement for deprecated isHighResolutionCaptureEnabled
-        settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
+        settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions // iOS 16+
         
         photoOutput.capturePhoto(with: settings, delegate: coordinator)
-    }
-
-    // MARK: - Focus & Exposure
-
-    func focusAndExpose(at point: CGPoint, in size: CGSize) {
-        let normalized = CGPoint(x: point.x / size.width, y: point.y / size.height)
-        sessionQueue.async { [weak self] in
-            guard let self,
-                  let device = (self.session.inputs.first as? AVCaptureDeviceInput)?.device else { return }
-            do {
-                try device.lockForConfiguration()
-                defer { device.unlockForConfiguration() }
-                if device.isFocusPointOfInterestSupported {
-                    device.focusPointOfInterest = normalized; device.focusMode = .autoFocus
-                }
-                if device.isExposurePointOfInterestSupported {
-                    device.exposurePointOfInterest = normalized; device.exposureMode = .autoExpose
-                }
-            } catch { print("Focus config failed: \(error)") }
-        }
     }
 
     func setExposureBias(_ ev: Float) {
@@ -313,9 +229,9 @@ final class CameraManager {
                   let device = (self.session.inputs.first as? AVCaptureDeviceInput)?.device else { return }
             do {
                 try device.lockForConfiguration()
-                defer { device.unlockForConfiguration() }
                 let clamped = max(device.minExposureTargetBias, min(ev, device.maxExposureTargetBias))
                 device.setExposureTargetBias(clamped)
+                device.unlockForConfiguration()
                 Task { @MainActor [weak self] in self?.exposureBias = clamped }
             } catch { print("Exposure bias failed: \(error)") }
         }
@@ -327,10 +243,8 @@ final class CameraManager {
     }
 }
 
-// MARK: - Coordinator (unchanged, well-isolated)
-private final class Coordinator: NSObject,
-                                 AVCaptureVideoDataOutputSampleBufferDelegate,
-                                 AVCapturePhotoCaptureDelegate {
+// MARK: - Coordinator
+private final class Coordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCapturePhotoCaptureDelegate {
     let videoOutput = AVCaptureVideoDataOutput()
     let photoOutput = AVCapturePhotoOutput()
     nonisolated(unsafe) var engine: TechnicolorEngine
@@ -350,7 +264,7 @@ private final class Coordinator: NSObject,
     nonisolated func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         guard error == nil,
               let data = photo.fileDataRepresentation(),
-              let ciSource = CIImage(data: data) else {
+              let ciSource = CIImage(data: data)else {
             Task { @MainActor [weak manager] in manager?.isCapturing = false }
             return
         }
@@ -385,16 +299,12 @@ private final class Coordinator: NSObject,
     }
 }
 
-extension Array where Element: Hashable {
-    func unique() -> [Element] { var seen = Set<Element>(); return filter { seen.insert($0).inserted } }
-}
-
 extension UIImage.Orientation {
     static func fromCG(_ cgOrientation: UInt32) -> UIImage.Orientation {
         switch cgOrientation {
-        case 1: return .up; case 2: return .upMirrored; case 3: return .down
-        case 4: return .downMirrored; case 5: return .leftMirrored; case 6: return .right
-        case 7: return .rightMirrored; case 8: return .left; default: return .up
+        case 1: .up; case 2: .upMirrored; case 3: .down; case 4: .downMirrored
+        case 5: .leftMirrored; case 6: .right; case 7: .rightMirrored; case 8: .left
+        default: .up
         }
     }
 }

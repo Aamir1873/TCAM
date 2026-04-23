@@ -1,218 +1,216 @@
 //
 //  CameraView.swift
-//  TCAM - Clean UI + Removed Focus Gesture
+//  TCAM - Fixed Layout & Controls
 //
 
 import SwiftUI
 import AVFoundation
 
+// MARK: - Models
+struct LensItem: Identifiable {
+    let id: Int
+    let type: AVCaptureDevice.DeviceType
+    let label: String
+    let baseZoomFactor: CGFloat
+    let digitalMultiplier: CGFloat
+    var isOptical: Bool { digitalMultiplier == 1.0 }
+}
+
 struct CameraView: View {
     @State private var camera: CameraManager = CameraManager()
     @Environment(\.scenePhase) private var scenePhase
     
-    @State private var showProcessPicker = false
-    @State private var showExposureSlider = false // ✅ Explicit state for slider visibility
+    @State private var showExposureSlider = false
     
-    private let ratio4x3: CGFloat = 4.0 / 3.0
+    private let filters: [TechnicolorProcess] = [.native, .twoStrip, .monopack, .threeStrip]
     
-    private var lensOptions: [LensItem] {
-        [
-            .init(id: 0, type: .builtInUltraWideCamera, label: "0.5", baseZoomFactor: 1.0, digitalMultiplier: 1.0),
-            .init(id: 1, type: .builtInWideAngleCamera, label: "1", baseZoomFactor: 1.0, digitalMultiplier: 1.0),
-            .init(id: 2, type: .builtInWideAngleCamera, label: "2", baseZoomFactor: 1.0, digitalMultiplier: 2.0),
-            .init(id: 3, type: .builtInTelephotoCamera, label: "5", baseZoomFactor: 1.0, digitalMultiplier: 1.0),
-            .init(id: 4, type: .builtInTelephotoCamera, label: "10", baseZoomFactor: 1.0, digitalMultiplier: 2.0)
-        ]
-    }
+    private let lensOptions: [LensItem] = [
+        .init(id: 0, type: .builtInUltraWideCamera, label: "0.5", baseZoomFactor: 1.0, digitalMultiplier: 1.0),
+        .init(id: 1, type: .builtInWideAngleCamera, label: "1", baseZoomFactor: 1.0, digitalMultiplier: 1.0),
+        .init(id: 2, type: .builtInWideAngleCamera, label: "2", baseZoomFactor: 1.0, digitalMultiplier: 2.0),
+        .init(id: 3, type: .builtInTelephotoCamera, label: "5", baseZoomFactor: 1.0, digitalMultiplier: 1.0),
+        .init(id: 4, type: .builtInTelephotoCamera, label: "10", baseZoomFactor: 1.0, digitalMultiplier: 2.0)
+    ]
     
     var body: some View {
-        GeometryReader { geo in
-            let size = geo.size
-            let safe = geo.safeAreaInsets
+        ZStack {
+            // 1️⃣ BACKGROUND / PREVIEW (4:3 Ratio, Centered)
+            Color.black.ignoresSafeArea()
             
-            let reservedForUI: CGFloat = 220
-            let maxPreviewH = size.height - safe.top - safe.bottom - reservedForUI
-            let previewH = min(maxPreviewH, size.width * ratio4x3)
-            let previewW = previewH / ratio4x3
-            
-            VStack(spacing: 0) {
-                // 1️⃣ TOP BAR (Flash + Exposure Toggle always visible)
-                topBar(safeAreaTop: safe.top)
-                    .padding(.horizontal, 16)
-                    .zIndex(2)
+            GeometryReader { geo in
+                // Calculate max 4:3 box that fits in screen
+                let targetWidth = geo.size.width
+                let targetHeight = targetWidth * (3.0 / 4.0)
                 
-                Spacer().frame(height: 8)
-                
-                // 2️⃣ CAMERA PREVIEW
-                ZStack {
-                    cameraPreview(size: CGSize(width: previewW, height: previewH))
-                        .frame(width: previewW, height: previewH)
-                    overlayViews
-                        .frame(width: previewW, height: previewH)
-                }
-                .frame(maxWidth: .infinity)
-                .clipped()
-                .background(Color.black.ignoresSafeArea())
-                .zIndex(1)
-                
-                Spacer().frame(height: 8)
-                
-                // 3️⃣ BOTTOM CONTROLS (Exposure Slider + Lenses + Shutter)
-                bottomControls(safeAreaBottom: safe.bottom)
-                    .padding(.horizontal, 16)
-                    .zIndex(3)
+                ImageOrPlaceholder(frame: camera.filteredFrame)
+                    .aspectRatio(4.0/3.0, contentMode: .fit) // ✅ Enforces 4:3
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
             }
-            .background(Color.black)
-            .animation(.spring(duration: 0.35, bounce: 0.3), value: self.camera.showSavedBanner)
-            .animation(.spring(duration: 0.4), value: showProcessPicker)
-            .animation(.easeInOut(duration: 0.25), value: showExposureSlider)
-            .sensoryFeedback(.success, trigger: self.camera.showSavedBanner)
-            .onChange(of: scenePhase) { self.camera.handleScenePhase($1) }
-            .task { await self.camera.requestPermissions() }
+            .ignoresSafeArea() // Preview bleeds behind nav bars if needed, but UI sits on top
+            
+            // 2️⃣ UI OVERLAY (Pinned to Bottom)
+            VStack {
+                Spacer() // ✅ Pushes everything to the bottom
+                
+                // Tap background to close exposure slider
+                if showExposureSlider {
+                    Color.black.opacity(0.01) // Invisible hit test area
+                        .onTapGesture {
+                            withAnimation { showExposureSlider = false }
+                        }
+                }
+                
+                // Control Panel Container
+                VStack(spacing: 16) {
+                    
+                    // Exposure Slider (Conditional)
+                    if showExposureSlider {
+                        HStack(spacing: 12) {
+                            Image(systemName: "sun.min")
+                                .foregroundStyle(.white)
+                                .font(.caption)
+                            
+                            ExposureSlider(bias: camera.exposureBias) {
+                                camera.setExposureBias($0)
+                            }
+                            .frame(maxWidth: 200)
+                            
+                            Image(systemName: "sun.max")
+                                .foregroundStyle(.white)
+                                .font(.caption)
+                                
+                            // Close Button
+                            Button {
+                                withAnimation { showExposureSlider = false }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.white.opacity(0.7))
+                                    .font(.title3)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    
+                    // Filter Buttons
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(filters) { filter in
+                                FilterButton(
+                                    title: filter.rawValue.replacingOccurrences(of: "-", with: " "),
+                                    isSelected: camera.currentProcess == filter
+                                ) {
+                                    camera.updateProcess(filter)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                    }
+                    
+                    // Lens Toggle
+                    HStack(spacing: 0) {
+                        ForEach(lensOptions) { (lens: LensItem) in
+                            Button {
+                                selectLens(lens)
+                            } label: {
+                                Text(lens.label)
+                                    .font(.system(size: 13, weight: isLensActive(lens) ? .bold : .medium))
+                                    .foregroundStyle(isLensActive(lens) ? .black : .white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(isLensActive(lens) ? Color.amber : .black.opacity(0.5))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .background(.black.opacity(0.3))
+                    .clipShape(Capsule())
+                    .padding(.horizontal, 20)
+                    
+                    // Main Shutter Row
+                    HStack(alignment: .center, spacing: 0) {
+                        // Left: Thumbnail
+                        thumbnailView
+                            .frame(width: 44)
+                        
+                        // Center: Shutter
+                        Spacer()
+                        ShutterButton(isCapturing: camera.isCapturing) {
+                            camera.capturePhoto()
+                        }
+                        Spacer()
+                        
+                        // Right: Flash & Exposure Toggle
+                        HStack(spacing: 16) {
+                            Button {
+                                camera.isFlashOn.toggle()
+                            } label: {
+                                Image(systemName: camera.isFlashOn ? "bolt.fill" : "bolt.slash")
+                                    .font(.title2)
+                                    .foregroundStyle(camera.isFlashOn ? .amber : .white)
+                                    .frame(width: 44, height: 44)
+                                    .background(.black.opacity(0.5), in: Circle())
+                            }
+                            
+                            Button {
+                                withAnimation { showExposureSlider.toggle() }
+                            } label: {
+                                Image(systemName: "sun.max")
+                                    .font(.title2)
+                                    .foregroundStyle(showExposureSlider ? .amber : .white)
+                                    .frame(width: 44, height: 44)
+                                    .background(.black.opacity(0.5), in: Circle())
+                            }
+                        }
+                        .frame(width: 44 + 16 + 44 + 16) // Match thumbnail width roughly for balance
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 8)
+                }
+                .padding(.bottom, 10) // Extra padding from very bottom
+            }
         }
+        .background(.black)
+        .sensoryFeedback(.success, trigger: camera.showSavedBanner)
+        .onChange(of: scenePhase) { camera.handleScenePhase($1) }
+        .task { await camera.requestPermissions() }
     }
     
-    // MARK: - Preview
+    // MARK: - Helpers
     @ViewBuilder
-    private func cameraPreview(size: CGSize) -> some View {
-        if let frame = self.camera.filteredFrame {
+    private func ImageOrPlaceholder(frame: CGImage?) -> some View {
+        if let frame = frame {
             Image(decorative: frame, scale: 1.0, orientation: .up)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
-                .frame(width: size.width, height: size.height)
-                .clipped()
         } else {
-            Color.black
-                .ignoresSafeArea()
-                .overlay(ProgressView().tint(.amber).scaleEffect(1.2))
+            ProgressView()
+                .tint(.amber)
+                .scaleEffect(1.5)
         }
     }
     
-    // MARK: - Overlays (No focus reticle)
-    @ViewBuilder
-    private var overlayViews: some View {
-        FilmFrameOverlay()
-        if self.camera.showGrid { GridOverlay() }
-        if let countdown = self.camera.timerCountdown {
-            TimerCountdownOverlay(count: countdown) { self.camera.cancelTimer() }
-        }
+    private func isLensActive(_ lens: LensItem) -> Bool {
+        guard camera.currentLens == lens.type else { return false }
+        let expectedZoom = lens.baseZoomFactor * lens.digitalMultiplier
+        return abs(camera.currentZoomFactor - expectedZoom) < 0.15
     }
     
-    // MARK: - Top Bar
-    @ViewBuilder
-    private func topBar(safeAreaTop: CGFloat) -> some View {
-        HStack(spacing: 12) {
-            // Process Picker Button
-            Button {
-                withAnimation(.spring(duration: 0.3)) { showProcessPicker.toggle() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "film.fill").font(.system(size: 10, weight: .bold))
-                    Text(self.camera.currentProcess.rawValue)
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                }
-                .foregroundStyle(.amber)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Capsule().fill(.black.opacity(0.6)).overlay(Capsule().stroke(.amber.opacity(0.4), lineWidth: 1)))
-            }
-            .buttonStyle(.plain)
-            
-            Spacer()
-            
-            // Controls
-            HStack(spacing: 8) {
-                ControlButton(icon: self.camera.showGrid ? "grid.fill" : "grid", isActive: self.camera.showGrid) {
-                    self.camera.showGrid.toggle()
-                }
-                ControlButton(icon: "timer", badge: self.camera.timerMode == .off ? nil : "\(self.camera.timerMode.rawValue)", isActive: self.camera.timerMode != .off) {
-                    self.camera.timerMode = self.camera.timerMode.next
-                }
-                ControlButton(icon: showExposureSlider ? "sun.max.fill" : "sun.max", isActive: showExposureSlider) {
-                    withAnimation { showExposureSlider.toggle() }
-                }
-                ControlButton(icon: self.camera.isFlashOn ? "bolt.fill" : "bolt.slash", isActive: self.camera.isFlashOn) {
-                    self.camera.isFlashOn.toggle()
-                }
-            }
+    private func selectLens(_ lens: LensItem) {
+        if camera.currentLens != lens.type {
+            while camera.currentLens != lens.type { camera.toggleLens() }
         }
-        .padding(.top, max(safeAreaTop, 8))
-        .padding(.bottom, 4)
+        let target = lens.baseZoomFactor * lens.digitalMultiplier
+        camera.setZoomFactor(target)
     }
     
-    // MARK: - Bottom Controls
-    @ViewBuilder
-    private func bottomControls(safeAreaBottom: CGFloat) -> some View {
-        VStack(spacing: 12) {
-            // ✅ Exposure Slider (Visible when toggled)
-            if showExposureSlider {
-                ExposureSlider(bias: self.camera.exposureBias) { self.camera.setExposureBias($0) }
-                    .padding(.horizontal, 24)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
-            
-            // Lens Selector
-            lensSelectorRow
-            
-            // Shutter Row
-            HStack(alignment: .center, spacing: 28) {
-                thumbnailView
-                
-                ShutterButton(
-                    isCapturing: self.camera.isCapturing,
-                    timerCountdown: self.camera.timerCountdown,
-                    timerTotal: self.camera.timerMode.rawValue
-                ) { self.camera.capturePhoto() }
-                
-                
-            }
-            
-            // Process Strip
-            ProcessStrip(selected: self.camera.currentProcess) { self.camera.updateProcess($0) }
-            
-            Spacer().frame(height: max(safeAreaBottom, 10))
-        }
-    }
-    
-    // MARK: - Lens Selector
-    private var lensSelectorRow: some View {
-        GeometryReader { geo in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(lensOptions) { lens in
-                        Button { selectLens(lens) } label: {
-                            VStack(spacing: 2) {
-                                Text(lens.label)
-                                    .font(.system(size: 14, weight: isLensActive(lens) ? .bold : .medium, design: .rounded))
-                                    .foregroundStyle(isLensActive(lens) ? .black : .white)
-                                if !lens.isOptical && isLensActive(lens) {
-                                    Text("D")
-                                        .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                        .foregroundStyle(.amber)
-                                }
-                            }
-                            .frame(width: 48, height: 48)
-                            .background(
-                                Circle()
-                                    .fill(isLensActive(lens) ? Color.amber : .black.opacity(0.6))
-                                    .overlay(Circle().stroke(isLensActive(lens) ? Color.clear : .white.opacity(0.3), lineWidth: 1.5))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .frame(width: geo.size.width, alignment: .center)
-                .padding(.horizontal, 2)
-            }
-        }
-        .frame(height: 56)
-    }
-    
-    // MARK: - Thumbnail
-    @ViewBuilder
     private var thumbnailView: some View {
         Group {
-            if let img = self.camera.capturedImage {
+            if let img = camera.capturedImage {
                 Image(uiImage: img).resizable().scaledToFill()
             } else {
                 RoundedRectangle(cornerRadius: 8)
@@ -220,53 +218,28 @@ struct CameraView: View {
                     .overlay(Image(systemName: "photo").font(.system(size: 16)).foregroundStyle(.white.opacity(0.4)))
             }
         }
-        .frame(width: 42, height: 42)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.3), lineWidth: 1))
-    }
-    
-    // MARK: - Helpers
-    private func isLensActive(_ lens: LensItem) -> Bool {
-        guard self.camera.currentLens == lens.type else { return false }
-        let expectedZoom = lens.baseZoomFactor * lens.digitalMultiplier
-        return abs(self.camera.currentZoomFactor - expectedZoom) < 0.15
-    }
-    
-    private func selectLens(_ lens: LensItem) {
-        if self.camera.currentLens != lens.type {
-            while self.camera.currentLens != lens.type { self.camera.toggleLens() }
-        }
-        let target = lens.baseZoomFactor * lens.digitalMultiplier
-        self.camera.setZoomFactor(target)
+        .frame(width: 44, height: 44)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.3), lineWidth: 1))
     }
 }
 
-// MARK: - Control Button
-struct ControlButton: View {
-    let icon: String
-    var badge: String? = nil
-    let isActive: Bool
+// MARK: - Small Components
+struct FilterButton: View {
+    let title: String
+    let isSelected: Bool
     let action: () -> Void
     
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 2) {
-                Image(systemName: icon).font(.system(size: 16, weight: .semibold))
-                if let badge { Text(badge).font(.system(size: 8, weight: .bold, design: .monospaced)) }
-            }
-            .foregroundStyle(isActive ? Color.amber : .white)
-            .frame(width: 40, height: 40)
-            .background(Circle().fill(.black.opacity(0.5)).overlay(Circle().stroke(.white.opacity(isActive ? 0.4 : 0.2), lineWidth: 1)))
+            Text(title.uppercased())
+                .font(.system(size: 10, weight: isSelected ? .bold : .medium, design: .monospaced))
+                .foregroundStyle(isSelected ? .black : .white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(isSelected ? Color.amber : .black.opacity(0.5))
+                .clipShape(Capsule())
         }
         .buttonStyle(.plain)
     }
-}
-
-private struct LensItem: Identifiable {
-    let id: Int
-    let type: AVCaptureDevice.DeviceType
-    let label: String
-    let baseZoomFactor: CGFloat
-    let digitalMultiplier: CGFloat
-    var isOptical: Bool { digitalMultiplier == 1.0 }
 }
