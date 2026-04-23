@@ -1,6 +1,6 @@
 //
 //  CameraView.swift
-//  TCAM - Fixed Layout & Filters
+//  TCAM - Smooth UI Updates
 //
 
 import SwiftUI
@@ -19,10 +19,7 @@ struct CameraView: View {
     @State private var camera: CameraManager = CameraManager()
     @Environment(\.scenePhase) private var scenePhase
     
-    // Removed showExposureSlider state - slider is now permanent
-    
     private let filters: [TechnicolorProcess] = [.native, .twoStrip, .monopack, .threeStrip]
-    
     private let lensOptions: [LensItem] = [
         .init(id: 0, type: .builtInUltraWideCamera, label: "0.5", baseZoomFactor: 1.0, digitalMultiplier: 1.0),
         .init(id: 1, type: .builtInWideAngleCamera, label: "1", baseZoomFactor: 1.0, digitalMultiplier: 1.0),
@@ -35,7 +32,6 @@ struct CameraView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             
-            // 4:3 Preview Box
             GeometryReader { geo in
                 ImageOrPlaceholder(frame: camera.filteredFrame)
                     .aspectRatio(4.0/3.0, contentMode: .fit)
@@ -46,14 +42,8 @@ struct CameraView: View {
             
             VStack {
                 Spacer()
-                
-                // Control Panel (Pushed Up slightly by geometry or padding)
-                ControlPanel(
-                    camera: camera, 
-                    filters: filters, 
-                    lensOptions: lensOptions
-                )
-                .padding(.bottom, 8)
+                ControlPanel(camera: camera, filters: filters, lensOptions: lensOptions)
+                    .padding(.bottom, 8)
             }
         }
         .background(.black)
@@ -73,56 +63,50 @@ struct CameraView: View {
     }
 }
 
-// MARK: - Control Panel
 private struct ControlPanel: View {
-    // ✅ Fix: Use @Bindable for @Observable classes in subviews to ensure visual updates
     @Bindable var camera: CameraManager
     let filters: [TechnicolorProcess]
     let lensOptions: [LensItem]
     
     var body: some View {
         VStack(spacing: 14) {
-            
-            // ✅ Permanent Exposure Slider (Always visible)
+            // Permanent Exposure Slider
             HStack(spacing: 10) {
                 Image(systemName: "sun.min").foregroundStyle(.white.opacity(0.6)).font(.caption)
-                
-                ExposureSlider(bias: camera.exposureBias) { 
-                    camera.setExposureBias($0) 
-                }
-                .frame(maxWidth: 220)
-                
+                ExposureSlider(bias: camera.exposureBias) { camera.setExposureBias($0) }.frame(maxWidth: 220)
                 Image(systemName: "sun.max").foregroundStyle(.white.opacity(0.6)).font(.caption)
             }
             .padding(.vertical, 4)
             
-            // Filter Selector (Fixed Visual Highlighting)
+            // ✅ Smooth Filter Toggle
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(filters) { filter in
-                        FilterButton(
-                            title: filter.rawValue.replacingOccurrences(of: "-", with: " "),
-                            isSelected: camera.currentProcess == filter // ✅ Now updates correctly
-                        ) {
-                            camera.updateProcess(filter)
+                        FilterButton(title: filter.rawValue.replacingOccurrences(of: "-", with: " "),
+                                     isSelected: camera.currentProcess == filter) {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                camera.updateProcess(filter)
+                            }
                         }
                     }
                 }
                 .padding(.horizontal, 20)
             }
             
-            // Lens Selector
+            // ✅ Smooth Lens Toggle
             HStack(spacing: 0) {
                 ForEach(lensOptions) { (lens: LensItem) in
                     Button {
-                        selectLens(lens)
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            camera.switchToLens(type: lens.type, zoom: lens.baseZoomFactor * lens.digitalMultiplier)
+                        }
                     } label: {
                         Text(lens.label)
-                            .font(.system(size: 13, weight: isLensActive(lens) ? .bold : .medium))
-                            .foregroundStyle(isLensActive(lens) ? .black : .white)
+                            .font(.system(size: 13, weight: camera.currentLens == lens.type && abs(camera.currentZoomFactor - (lens.baseZoomFactor * lens.digitalMultiplier)) < 0.15 ? .bold : .medium))
+                            .foregroundStyle(camera.currentLens == lens.type && abs(camera.currentZoomFactor - (lens.baseZoomFactor * lens.digitalMultiplier)) < 0.15 ? .black : .white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
-                            .background(isLensActive(lens) ? Color.amber : .black.opacity(0.5))
+                            .background(camera.currentLens == lens.type && abs(camera.currentZoomFactor - (lens.baseZoomFactor * lens.digitalMultiplier)) < 0.15 ? Color.amber : .black.opacity(0.5))
                     }
                     .buttonStyle(.plain)
                 }
@@ -133,18 +117,10 @@ private struct ControlPanel: View {
             
             // Shutter Row
             HStack(alignment: .center, spacing: 0) {
-                ThumbnailView(capturedImage: camera.capturedImage)
-                    .frame(width: 44)
-                
+                ThumbnailView(capturedImage: camera.capturedImage).frame(width: 44)
                 Spacer()
-                
-                ShutterButton(isCapturing: camera.isCapturing) {
-                    camera.capturePhoto()
-                }
-                
+                ShutterButton(isCapturing: camera.isCapturing) { camera.capturePhoto() }
                 Spacer()
-                
-                // Flash Button
                 Button {
                     camera.isFlashOn.toggle()
                 } label: {
@@ -154,29 +130,14 @@ private struct ControlPanel: View {
                         .frame(width: 44, height: 44)
                         .background(.black.opacity(0.5), in: Circle())
                 }
-                .padding(.trailing, 24) // Align with thumbnail padding
+                .padding(.trailing, 24)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 4)
         }
     }
-    
-    private func isLensActive(_ lens: LensItem) -> Bool {
-        guard camera.currentLens == lens.type else { return false }
-        let expectedZoom = lens.baseZoomFactor * lens.digitalMultiplier
-        return abs(camera.currentZoomFactor - expectedZoom) < 0.15
-    }
-    
-    private func selectLens(_ lens: LensItem) {
-        if camera.currentLens != lens.type {
-            while camera.currentLens != lens.type { camera.toggleLens() }
-        }
-        let target = lens.baseZoomFactor * lens.digitalMultiplier
-        camera.setZoomFactor(target)
-    }
 }
 
-// MARK: - Small Components
 struct FilterButton: View {
     let title: String
     let isSelected: Bool
@@ -198,16 +159,10 @@ struct FilterButton: View {
 
 struct ThumbnailView: View {
     let capturedImage: UIImage?
-    
     var body: some View {
         Group {
-            if let img = capturedImage {
-                Image(uiImage: img).resizable().scaledToFill()
-            } else {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(.white.opacity(0.15))
-                    .overlay(Image(systemName: "photo").font(.system(size: 16)).foregroundStyle(.white.opacity(0.4)))
-            }
+            if let img = capturedImage { Image(uiImage: img).resizable().scaledToFill() }
+            else { RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.15)).overlay(Image(systemName: "photo").font(.system(size: 16)).foregroundStyle(.white.opacity(0.4))) }
         }
         .frame(width: 44, height: 44)
         .clipShape(RoundedRectangle(cornerRadius: 10))
