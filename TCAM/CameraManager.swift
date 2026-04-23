@@ -259,46 +259,47 @@ private final class Coordinator: NSObject, AVCaptureVideoDataOutputSampleBufferD
     }
 
     nonisolated func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-        guard error == nil,
-              let data = photo.fileDataRepresentation(),
-              let ciSource = CIImage( data: data) else {
-            Task { @MainActor [weak manager] in manager?.isCapturing = false }
-            return
-        }
+    guard error == nil,
+          let data = photo.fileDataRepresentation(),
+          let ciSource = CIImage(data: data) else {
+        Task { @MainActor [weak manager] in manager?.isCapturing = false }
+        return
+    }
 
-        let process = manager?.currentProcessCache ?? .native
-        let filtered = engine.apply(process, to: ciSource)
-        guard let cg = engine.context.createCGImage(filtered, from: filtered.extent) else {
-            Task { @MainActor [weak manager] in manager?.isCapturing = false }
-            return
-        }
+    let process = manager?.currentProcessCache ?? .native
+    let filtered = engine.apply(process, to: ciSource)
+    
+    // ✅ Ensure we use the full extent without black borders
+    guard let cg = engine.context.createCGImage(filtered, from: filtered.extent) else {
+        Task { @MainActor [weak manager] in manager?.isCapturing = false }
+        return
+    }
 
-        let orientation = UIImage.Orientation.fromCG(photo.metadata[kCGImagePropertyOrientation as String] as? UInt32 ?? 1)
-        let originalImage = UIImage(cgImage: cg, scale: 1.0, orientation: orientation)
+    let orientation = UIImage.Orientation.fromCG(photo.metadata[kCGImagePropertyOrientation as String] as? UInt32 ?? 1)
+    let originalImage = UIImage(cgImage: cg, scale: 1.0, orientation: orientation)
+    
+    let isEnabled = manager?.watermarkEnabled ?? true
+    let finalImage = PhotoWatermarker.apply(to: originalImage, metadata: photo.metadata, isEnabled: isEnabled)
+
+    Task { @MainActor [weak manager] in
+        guard let manager else { return }
+        manager.isCapturing = false
+        manager.capturedImage = finalImage
         
-        // ✅ Safe read of nonisolated(unsafe) flag
-        let isEnabled = manager?.watermarkEnabled ?? true
-        let finalImage = PhotoWatermarker.apply(to: originalImage, metadata: photo.metadata, isEnabled: isEnabled)
-
-        Task { @MainActor [weak manager] in
-            guard let manager else { return }
-            manager.isCapturing = false
-            manager.capturedImage = finalImage
-            
-            guard manager.photoPermissionGranted else { return }
-            PHPhotoLibrary.shared().performChanges({
-                let req = PHAssetChangeRequest.creationRequestForAsset(from: finalImage)
-                req.creationDate = Date()
-            }) { ok, _ in
-                guard ok else { return }
-                Task { @MainActor in
-                    manager.showSavedBanner = true
-                    try? await Task.sleep(for: .seconds(2))
-                    manager.showSavedBanner = false
-                }
+        guard manager.photoPermissionGranted else { return }
+        PHPhotoLibrary.shared().performChanges({
+            let req = PHAssetChangeRequest.creationRequestForAsset(from: finalImage)
+            req.creationDate = Date()
+        }) { ok, _ in
+            guard ok else { return }
+            Task { @MainActor in
+                manager.showSavedBanner = true
+                try? await Task.sleep(for: .seconds(2))
+                manager.showSavedBanner = false
             }
         }
     }
+}
 }
 
 extension UIImage.Orientation {

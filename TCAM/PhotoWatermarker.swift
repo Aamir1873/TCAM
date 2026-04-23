@@ -1,6 +1,6 @@
 //
 //  PhotoWatermarker.swift
-//  TCAM
+//  TCAM - OPPO/Hasselblad Style Watermark
 //
 
 import UIKit
@@ -15,12 +15,11 @@ final class PhotoWatermarker {
         let tiff = metadata[kCGImagePropertyTIFFDictionary as String] as? [String: Any] ?? [:]
         
         let isoArray = exif[kCGImagePropertyExifISOSpeedRatings as String] as? [Int] ?? []
-        let isoString = isoArray.first.map { "ISO \($0)" } ?? ""
+        let isoString = isoArray.first.map { "ISO\($0)" } ?? ""
         
         let exposureTime = exif[kCGImagePropertyExifExposureTime as String] as? Double ?? 0
         let shutterString = exposureTime > 0 ? formatShutter(exposureTime) : ""
         
-        // ✅ Fixed: Use standard EXIF key
         let focalRaw = exif[kCGImagePropertyExifFocalLength as String] as? Double ?? 0
         let focalString = focalRaw > 0 ? String(format: "%.0fmm", focalRaw) : ""
         
@@ -29,15 +28,17 @@ final class PhotoWatermarker {
         
         let model = tiff[kCGImagePropertyTIFFModel as String] as? String ?? UIDevice.current.model
         
-        let deviceLine = "SHOT ON \(model.uppercased())"
         var specs = [String]()
-        if !isoString.isEmpty { specs.append(isoString) }
-        if !shutterString.isEmpty { specs.append(shutterString) }
         if !focalString.isEmpty { specs.append(focalString) }
         if !fString.isEmpty { specs.append(fString) }
-        let specsLine = specs.joined(separator: " • ")
+        if !shutterString.isEmpty { specs.append(shutterString) }
+        if !isoString.isEmpty { specs.append(isoString) }
+        let specsLine = specs.joined(separator: " ")
         
-        return render(on: image, deviceLine: deviceLine, specsLine: specsLine)
+        return render(on: image,
+                      modelName: model.uppercased(),
+                      brandName: "TCAM",
+                      specs: specsLine)
     }
     
     private static func formatShutter(_ seconds: Double) -> String {
@@ -45,42 +46,63 @@ final class PhotoWatermarker {
         return "1/\(Int(round(1.0 / seconds)))s"
     }
     
-    private static func render(on image: UIImage, deviceLine: String, specsLine: String) -> UIImage {
-        let size = image.size
+    private static func render(on image: UIImage, modelName: String, brandName: String, specs: String) -> UIImage {
+        let width = image.size.width
+        let footerHeight: CGFloat = 160 // ✅ Increased from 140
+        let newSize = CGSize(width: width, height: image.size.height + footerHeight)
         
-        // ✅ Fixed: Simplified renderer init to avoid trait collection mismatch
-        let renderer = UIGraphicsImageRenderer(size: size)
+        let renderer = UIGraphicsImageRenderer(size: newSize)
         return renderer.image { ctx in
-            image.draw(in: CGRect(origin: .zero, size: size))
+            image.draw(in: CGRect(origin: .zero, size: image.size))
             
-            let padding: CGFloat = 24
-            let bgPadding: CGFloat = 16
-            let cornerRadius: CGFloat = 12
-            let lineSpacing: CGFloat = 6
+            UIColor.white.setFill()
+            ctx.fill(CGRect(x: 0, y: image.size.height, width: width, height: footerHeight))
             
-            let deviceFont = UIFont.systemFont(ofSize: 28, weight: .semibold)
-            let specsFont = UIFont.systemFont(ofSize: 20, weight: .regular)
+            let padding: CGFloat = 32 // ✅ Increased from 24
+            let startY = image.size.height + 24 // ✅ Increased from 16
             
-            let deviceSize = (deviceLine as NSString).size(withAttributes: [.font: deviceFont])
-            let specsSize = (specsLine as NSString).size(withAttributes: [.font: specsFont])
+            // Left Side: Phone Model - LARGER
+            let modelFont = UIFont.systemFont(ofSize: 28, weight: .semibold) // ✅ Increased from 20
+            let modelText = "SHOT ON \(modelName)"
+            let modelSize = (modelText as NSString).size(withAttributes: [.font: modelFont])
             
-            let boxWidth = max(deviceSize.width, specsSize.width) + bgPadding * 2
-            let boxHeight = 28 + lineSpacing + 20 + bgPadding * 2
+            UIColor.black.set()
+            (modelText as NSString).draw(in: CGRect(x: padding, y: startY, width: modelSize.width, height: 32), withAttributes: [.font: modelFont])
             
-            let boxX = size.width - boxWidth - padding
-            let boxY = size.height - boxHeight - padding
+            // Right Side: Brand & Specs - LARGER
+            let brandFont = UIFont(name: "Georgia", size: 32) ?? UIFont.systemFont(ofSize: 32, weight: .bold) // ✅ Increased from 22
+            let brandSize = (brandName as NSString).size(withAttributes: [.font: brandFont])
             
-            let bgColor = UIColor(white: 0, alpha: 0.65)
-            let path = UIBezierPath(roundedRect: CGRect(x: boxX, y: boxY, width: boxWidth, height: boxHeight), cornerRadius: cornerRadius)
-            bgColor.setFill()
-            path.fill()
+            let specsFont = UIFont.monospacedSystemFont(ofSize: 16, weight: .regular) // ✅ Increased from 12
+            let specsSize = (specs as NSString).size(withAttributes: [.font: specsFont])
             
-            let deviceAttr: [NSAttributedString.Key: Any] = [.font: deviceFont, .foregroundColor: UIColor.white]
-            let specsAttr: [NSAttributedString.Key: Any] = [.font: specsFont, .foregroundColor: UIColor.white.withAlphaComponent(0.85)]
+            let rightContentWidth = max(brandSize.width, specsSize.width + 24) // ✅ Increased spacing
+            let startX = width - rightContentWidth - padding
             
-            let textY = boxY + bgPadding
-            (deviceLine as NSString).draw(in: CGRect(x: boxX + bgPadding, y: textY, width: boxWidth - bgPadding * 2, height: 28), withAttributes: deviceAttr)
-            (specsLine as NSString).draw(in: CGRect(x: boxX + bgPadding, y: textY + 28 + lineSpacing, width: boxWidth - bgPadding * 2, height: 20), withAttributes: specsAttr)
+            UIColor.black.set()
+            (brandName as NSString).draw(in: CGRect(x: startX, y: startY, width: brandSize.width, height: 32), withAttributes: [.font: brandFont])
+            
+            let dotColor = UIColor(hex: 0xFF6B35)
+            dotColor.setFill()
+            let dotY = startY + 44 // ✅ Adjusted position
+            let dotRect = CGRect(x: startX, y: dotY, width: 8, height: 8) // ✅ Larger dot
+            
+            let dotPath = UIBezierPath(ovalIn: dotRect)
+            dotPath.fill()
+            
+            UIColor.darkGray.set()
+            (specs as NSString).draw(in: CGRect(x: startX + 18, y: dotY, width: specsSize.width, height: 20), withAttributes: [.font: specsFont])
         }
+    }
+}
+
+extension UIColor {
+    convenience init(hex: Int) {
+        self.init(
+            red: CGFloat((hex >> 16) & 0xFF) / 255.0,
+            green: CGFloat((hex >> 8) & 0xFF) / 255.0,
+            blue: CGFloat(hex & 0xFF) / 255.0,
+            alpha: 1.0
+        )
     }
 }
