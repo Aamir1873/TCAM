@@ -1,6 +1,6 @@
 //
 //  PhotoWatermarker.swift
-//  TCAM - OPPO/Hasselblad Style Watermark
+//  TCAM - Memory-Optimized OPPO Style
 //
 
 import UIKit
@@ -8,7 +8,10 @@ import AVFoundation
 
 final class PhotoWatermarker {
     
-    static func apply(to image: UIImage, meta [String: Any], isEnabled: Bool) -> UIImage {
+    // ✅ Cap max width to 4K to prevent memory crashes
+    private static let maxRenderWidth: CGFloat = 3840
+    
+    static func apply(to image: UIImage, metadata: [String: Any], isEnabled: Bool) -> UIImage {
         guard isEnabled else { return image }
         
         let exif = metadata[kCGImagePropertyExifDictionary as String] as? [String: Any] ?? [:]
@@ -47,49 +50,72 @@ final class PhotoWatermarker {
     }
     
     private static func render(on image: UIImage, modelName: String, brandName: String, specs: String) -> UIImage {
-        let width = image.size.width
-        let footerHeight: CGFloat = 200
-        let newSize = CGSize(width: width, height: image.size.height + footerHeight)
+        // ✅ Calculate safe render size
+        let originalWidth = image.size.width
+        let originalHeight = image.size.height
+        let aspectRatio = originalHeight / originalWidth
         
-        let renderer = UIGraphicsImageRenderer(size: newSize)
+        // Cap width to prevent memory crash
+        let renderWidth = min(originalWidth, maxRenderWidth)
+        let renderHeight = renderWidth * aspectRatio
+        let footerHeight: CGFloat = 400
+        let totalHeight = renderHeight + footerHeight
+        
+        // ✅ Use scale=1.0 for memory efficiency (text will still look sharp at 4K)
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: renderWidth, height: totalHeight),
+                                              format: .init(for: .init(displayScale: 1.0)))
+        
         return renderer.image { ctx in
-            image.draw(in: CGRect(origin: .zero, size: image.size))
+            // Draw scaled image
+            image.draw(in: CGRect(x: 0, y: 0, width: renderWidth, height: renderHeight))
             
+            // Draw white footer
             UIColor.white.setFill()
-            ctx.fill(CGRect(x: 0, y: image.size.height, width: width, height: footerHeight))
+            ctx.fill(CGRect(x: 0, y: renderHeight, width: renderWidth, height: footerHeight))
             
             let padding: CGFloat = 40
-            let startY = image.size.height + 32
+            let startY = renderHeight + 60
             
-            let modelFont = UIFont.systemFont(ofSize: 42, weight: .semibold)
+            // Calculate font sizes relative to render width for consistency
+            let modelFontSize = renderWidth * 0.026 // ~100pt at 3840px width
+            let brandFontSize = renderWidth * 0.029 // ~110pt at 3840px width
+            let specsFontSize = renderWidth * 0.0125 // ~48pt at 3840px width
+            
+            // Left Side: Phone Model
+            let modelFont = UIFont.systemFont(ofSize: modelFontSize, weight: .semibold)
             let modelText = "SHOT ON \(modelName)"
             let modelSize = (modelText as NSString).size(withAttributes: [.font: modelFont])
             
             UIColor.black.set()
-            (modelText as NSString).draw(in: CGRect(x: padding, y: startY, width: modelSize.width, height: 50), withAttributes: [.font: modelFont])
+            (modelText as NSString).draw(in: CGRect(x: padding, y: startY, width: modelSize.width, height: modelFontSize + 10), withAttributes: [.font: modelFont])
             
-            let brandFont = UIFont(name: "Georgia", size: 44) ?? UIFont.systemFont(ofSize: 44, weight: .bold)
+            // Right Side: Brand & Specs
+            let brandFont = UIFont(name: "Georgia", size: brandFontSize) ?? UIFont.systemFont(ofSize: brandFontSize, weight: .bold)
             let brandSize = (brandName as NSString).size(withAttributes: [.font: brandFont])
             
-            let specsFont = UIFont.monospacedSystemFont(ofSize: 22, weight: .medium)
+            let specsFont = UIFont.monospacedSystemFont(ofSize: specsFontSize, weight: .medium)
             let specsSize = (specs as NSString).size(withAttributes: [.font: specsFont])
             
-            let rightContentWidth = max(brandSize.width, specsSize.width + 32)
-            let startX = width - rightContentWidth - padding
+            let rightContentWidth = max(brandSize.width, specsSize.width + 60)
+            let startX = renderWidth - rightContentWidth - padding
             
+            // Draw Brand Name
             UIColor.black.set()
-            (brandName as NSString).draw(in: CGRect(x: startX, y: startY, width: brandSize.width, height: 50), withAttributes: [.font: brandFont])
+            (brandName as NSString).draw(in: CGRect(x: startX, y: startY, width: brandSize.width, height: brandFontSize + 10), withAttributes: [.font: brandFont])
             
+            // Draw Orange Dot
             let dotColor = UIColor(hex: 0xFF6B35)
             dotColor.setFill()
-            let dotY = startY + 60
-            let dotRect = CGRect(x: startX, y: dotY, width: 12, height: 12)
+            let dotY = startY + brandFontSize + 20
+            let dotSize = renderWidth * 0.005 // ~20pt at 3840px
+            let dotRect = CGRect(x: startX, y: dotY, width: dotSize, height: dotSize)
             
             let dotPath = UIBezierPath(ovalIn: dotRect)
             dotPath.fill()
             
+            // Draw Specs
             UIColor.darkGray.set()
-            (specs as NSString).draw(in: CGRect(x: startX + 24, y: dotY + 2, width: specsSize.width, height: 28), withAttributes: [.font: specsFont])
+            (specs as NSString).draw(in: CGRect(x: startX + dotSize + 28, y: dotY + 24, width: specsSize.width, height: specsFontSize + 28), withAttributes: [.font: specsFont])
         }
     }
 }
