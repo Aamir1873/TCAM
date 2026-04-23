@@ -10,29 +10,39 @@ struct CameraView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var showProcessPicker  = false
-    @State private var lastScale: CGFloat = 1.0
     @State private var focusDot: CGPoint? = nil
     @State private var showExposureSlider = false
 
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
+            let previewSize = CGSize(
+                width: size.width * 0.8,
+                height: size.height * 0.8
+            )
 
             ZStack {
                 Color.black.ignoresSafeArea()
 
                 if let frame = camera.filteredFrame {
                     Image(decorative: frame, scale: 1.0, orientation: .up)
-                        .resizable().scaledToFill()
-                        .frame(width: size.width, height: size.height)
-                        .clipped().ignoresSafeArea()
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: previewSize.width, height: previewSize.height)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .position(x: size.width / 2, y: size.height / 2)
                 }
 
-                FilmFrameOverlay().ignoresSafeArea()
+                FilmFrameOverlay()
+                    .frame(width: previewSize.width, height: previewSize.height)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .position(x: size.width / 2, y: size.height / 2)
 
                 if camera.showGrid {
                     GridOverlay()
-                        .ignoresSafeArea()
+                        .frame(width: previewSize.width, height: previewSize.height)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .position(x: size.width / 2, y: size.height / 2)
                         .transition(.opacity)
                 }
 
@@ -85,11 +95,9 @@ struct CameraView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .gesture(
-                MagnificationGesture()
-                    .onChanged { camera.setZoom(lastScale * $0) }
-                    .onEnded   { _ in lastScale = camera.zoomFactor }
-            )
+            .onTapGesture(count: 2) {
+                camera.toggleLens()
+            }
             .onTapGesture { point in
                 focusDot = point
                 camera.focusAndExpose(at: point, in: size)
@@ -155,7 +163,7 @@ struct CameraView: View {
 
     func bottomControls(safeBottom: CGFloat, size: CGSize) -> some View {
         VStack(spacing: 0) {
-            ZoomIndicator(zoom: camera.zoomFactor) { camera.setZoom(1.0); lastScale = 1.0 }
+            LensIndicator(currentLens: camera.currentLens) { camera.toggleLens() }
                 .padding(.bottom, 20)
 
             HStack(alignment: .center, spacing: 0) {
