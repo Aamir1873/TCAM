@@ -48,7 +48,7 @@ final class PhotoWatermarker {
     
     private static func render(on image: UIImage, modelName: String, brandName: String, specs: String) -> UIImage {
         let width = image.size.width
-        let footerHeight: CGFloat = 160 // ✅ Increased from 140
+        let footerHeight: CGFloat = 200
         let newSize = CGSize(width: width, height: image.size.height + footerHeight)
         
         let renderer = UIGraphicsImageRenderer(size: newSize)
@@ -58,40 +58,38 @@ final class PhotoWatermarker {
             UIColor.white.setFill()
             ctx.fill(CGRect(x: 0, y: image.size.height, width: width, height: footerHeight))
             
-            let padding: CGFloat = 32 // ✅ Increased from 24
-            let startY = image.size.height + 24 // ✅ Increased from 16
+            let padding: CGFloat = 40
+            let startY = image.size.height + 32
             
-            // Left Side: Phone Model - LARGER
-            let modelFont = UIFont.systemFont(ofSize: 28, weight: .semibold) // ✅ Increased from 20
+            let modelFont = UIFont.systemFont(ofSize: 42, weight: .semibold)
             let modelText = "SHOT ON \(modelName)"
             let modelSize = (modelText as NSString).size(withAttributes: [.font: modelFont])
             
             UIColor.black.set()
-            (modelText as NSString).draw(in: CGRect(x: padding, y: startY, width: modelSize.width, height: 32), withAttributes: [.font: modelFont])
+            (modelText as NSString).draw(in: CGRect(x: padding, y: startY, width: modelSize.width, height: 50), withAttributes: [.font: modelFont])
             
-            // Right Side: Brand & Specs - LARGER
-            let brandFont = UIFont(name: "Georgia", size: 32) ?? UIFont.systemFont(ofSize: 32, weight: .bold) // ✅ Increased from 22
+            let brandFont = UIFont(name: "Georgia", size: 44) ?? UIFont.systemFont(ofSize: 44, weight: .bold)
             let brandSize = (brandName as NSString).size(withAttributes: [.font: brandFont])
             
-            let specsFont = UIFont.monospacedSystemFont(ofSize: 16, weight: .regular) // ✅ Increased from 12
+            let specsFont = UIFont.monospacedSystemFont(ofSize: 22, weight: .medium)
             let specsSize = (specs as NSString).size(withAttributes: [.font: specsFont])
             
-            let rightContentWidth = max(brandSize.width, specsSize.width + 24) // ✅ Increased spacing
+            let rightContentWidth = max(brandSize.width, specsSize.width + 32)
             let startX = width - rightContentWidth - padding
             
             UIColor.black.set()
-            (brandName as NSString).draw(in: CGRect(x: startX, y: startY, width: brandSize.width, height: 32), withAttributes: [.font: brandFont])
+            (brandName as NSString).draw(in: CGRect(x: startX, y: startY, width: brandSize.width, height: 50), withAttributes: [.font: brandFont])
             
             let dotColor = UIColor(hex: 0xFF6B35)
             dotColor.setFill()
-            let dotY = startY + 44 // ✅ Adjusted position
-            let dotRect = CGRect(x: startX, y: dotY, width: 8, height: 8) // ✅ Larger dot
+            let dotY = startY + 60
+            let dotRect = CGRect(x: startX, y: dotY, width: 12, height: 12)
             
             let dotPath = UIBezierPath(ovalIn: dotRect)
             dotPath.fill()
             
             UIColor.darkGray.set()
-            (specs as NSString).draw(in: CGRect(x: startX + 18, y: dotY, width: specsSize.width, height: 20), withAttributes: [.font: specsFont])
+            (specs as NSString).draw(in: CGRect(x: startX + 24, y: dotY + 2, width: specsSize.width, height: 28), withAttributes: [.font: specsFont])
         }
     }
 }
