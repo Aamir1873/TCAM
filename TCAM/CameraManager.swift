@@ -12,6 +12,7 @@ import Photos
 @MainActor
 final class CameraManager {
     enum PermissionState { case unknown, granted, denied }
+    var activeLensType: AVCaptureDevice.DeviceType = .builtInWideAngleCamera
 
     var filteredFrame: CGImage?
     var capturedImage: UIImage?
@@ -123,7 +124,7 @@ final class CameraManager {
     func switchToLens(type: AVCaptureDevice.DeviceType, avZoom: CGFloat, logicalZoom: CGFloat) {
         currentLens = type
         logicalZoomFactor = logicalZoom
-
+        activeLensType = type
         let position = self.cameraPosition
         let isFront = position == AVCaptureDevice.Position.front
         let sessionRef = self.session
@@ -248,3 +249,4 @@ extension UIImage.Orientation {
         }
     }
 }
+

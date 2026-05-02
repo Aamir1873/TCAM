@@ -21,6 +21,8 @@ extension ShapeStyle where Self == Color {
 
 @main
 struct TechnicolorCameraApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     var body: some Scene {
         WindowGroup {
             ContentView()

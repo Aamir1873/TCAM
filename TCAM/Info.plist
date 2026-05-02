@@ -48,11 +48,7 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-	</array>
+	
 	<key>NSCameraUsageDescription</key>
 	<string>TCAM needs access to your camera to capture photos and apply color filters in real time.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
