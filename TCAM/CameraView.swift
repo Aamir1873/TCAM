@@ -1,19 +1,19 @@
 //
 //  CameraView.swift
-//  TCAM - Glass UI (Compiler-Optimized & Fixed)
+//  TCAM - Glass UI (Performance Optimized)
 //
 
 import SwiftUI
 import AVFoundation
-import CoreHaptics
+// ✅ REMOVED: CoreHaptics import
 
-// MARK: - Reusable Glass Modifiers
+// MARK: - Reusable Glass Modifiers (Lightweight)
 private extension View {
     func glassPill() -> some View {
         self
             .background(.ultraThinMaterial)
             .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 1))
-            .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
+            .shadow(color: .black.opacity(0.15), radius: 4, y: 2) // ✅ Reduced shadow radius
             .clipShape(Capsule())
     }
     
@@ -21,7 +21,7 @@ private extension View {
         self
             .background(.ultraThinMaterial)
             .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
-            .shadow(color: .black.opacity(0.25), radius: 5, y: 2)
+            .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
             .clipShape(Circle())
     }
     
@@ -29,7 +29,7 @@ private extension View {
         self
             .background(.ultraThinMaterial)
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.2), lineWidth: 1))
-            .shadow(color: .black.opacity(0.25), radius: 10, y: 5)
+            .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
             .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 }
@@ -44,10 +44,13 @@ struct CameraView: View {
     @State private var pinchZoom: CGFloat = 1.0
     @State private var lastPinchZoom: CGFloat = 1.0
     
+    // ✅ THROTTLE: Batch zoom updates to reduce re-renders
+    @State private var zoomUpdateTask: Task<Void, Never>?
+    
     private let filters: [TechnicolorProcess] = [.native, .twoStrip, .monopack, .threeStrip]
     private let exposurePresets: [Float] = [-1.0, 0.0, 1.0]
     
-    @State private var hapticEngine: CHHapticEngine?
+    // ✅ REMOVED: hapticEngine state
     
     var body: some View {
         ZStack {
@@ -61,13 +64,21 @@ struct CameraView: View {
                 .gesture(
                     MagnificationGesture()
                         .onChanged { value in
-                            let newZoom = lastPinchZoom * value
-                            pinchZoom = max(0.5, min(10.0, newZoom))
-                            updateZoomForCurrentLens(pinchZoom)
+                            // ✅ THROTTLE: Debounce zoom updates
+                            zoomUpdateTask?.cancel()
+                            zoomUpdateTask = Task {
+                                try? await Task.sleep(nanoseconds: 16_000_000) // ~60fps cap
+                                let newZoom = lastPinchZoom * value
+                                let clampedZoom = max(0.5, min(10.0, newZoom))
+                                await MainActor.run {
+                                    pinchZoom = clampedZoom
+                                    updateZoomForCurrentLens(clampedZoom)
+                                }
+                            }
                         }
                         .onEnded { _ in
                             lastPinchZoom = pinchZoom
-                            triggerHaptic(.selection)
+                            // ✅ REMOVED: triggerHaptic(.selection)
                         }
                 )
             
@@ -89,18 +100,18 @@ struct CameraView: View {
                     filters: filters,
                     exposurePresets: exposurePresets,
                     wideZoomToggle: $wideZoomToggle,
-                    teleZoomToggle: $teleZoomToggle,
-                    onHaptic: triggerHaptic
+                    teleZoomToggle: $teleZoomToggle
+                    // ✅ REMOVED: onHaptic callback
                 )
                 .padding(.bottom, 12)
             }
         }
         .background(.black)
-        .sensoryFeedback(.success, trigger: camera.showSavedBanner)
+        // ✅ REMOVED: .sensoryFeedback(.success, trigger: camera.showSavedBanner)
         .onChange(of: scenePhase) { camera.handleScenePhase($1) }
         .task {
             await camera.requestPermissions()
-            prepareHaptics()
+            // ✅ REMOVED: prepareHaptics()
         }
         .transaction { $0.animation = nil }
     }
@@ -137,30 +148,8 @@ struct CameraView: View {
         }
     }
     
-    private func prepareHaptics() {
-        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
-        do {
-            hapticEngine = try CHHapticEngine()
-            try hapticEngine?.start()
-        } catch { print("Haptics init error: \(error)") }
-    }
-    
-    private func triggerHaptic(_ pattern: HapticPattern) {
-        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
-        let intensity: Float = pattern == .success ? 0.9 : 0.6
-        let sharpness: Float = pattern == .success ? 0.8 : 0.5
-        
-        do {
-            let p1 = CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity)
-            let p2 = CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness)
-            let event = CHHapticEvent(eventType: .hapticTransient, parameters: [p1, p2], relativeTime: 0)
-            let hapticPattern = try CHHapticPattern(events: [event], parameters: [])
-            
-            if let player = try? hapticEngine?.makePlayer(with: hapticPattern) {
-                try? player.start(atTime: 0)
-            }
-        } catch { print("Haptic play error: \(error)") }
-    }
+    // ✅ REMOVED: prepareHaptics() function
+    // ✅ REMOVED: triggerHaptic() function
     
     @ViewBuilder
     private func ImageOrPlaceholder(frame: CGImage?) -> some View {
@@ -180,16 +169,16 @@ struct CameraView: View {
     }
 }
 
-enum HapticPattern { case selection, success, warning }
+// ✅ REMOVED: HapticPattern enum
 
-// MARK: - Control Panel (Decomposed for Compiler Stability)
+// MARK: - Control Panel
 private struct ControlPanel: View {
     var camera: CameraManager
     let filters: [TechnicolorProcess]
     let exposurePresets: [Float]
     @Binding var wideZoomToggle: CGFloat
     @Binding var teleZoomToggle: CGFloat
-    let onHaptic: (HapticPattern) -> Void
+    // ✅ REMOVED: onHaptic callback parameter
     
     var body: some View {
         VStack(spacing: 10) {
@@ -207,7 +196,7 @@ private struct ControlPanel: View {
                 ExposureButton(value: value, isActive: abs(camera.exposureBias - value) < 0.05) {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         camera.setExposureBias(value)
-                        onHaptic(.selection)
+                        // ✅ REMOVED: onHaptic(.selection)
                     }
                 }
             }
@@ -221,7 +210,7 @@ private struct ControlPanel: View {
                 FilterButton(filter: filter, isSelected: camera.currentProcess == filter) {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         camera.updateProcess(filter)
-                        onHaptic(.selection)
+                        // ✅ REMOVED: onHaptic(.selection)
                     }
                 }
             }
@@ -233,20 +222,20 @@ private struct ControlPanel: View {
             LensButton(label: "0.5", type: .builtInUltraWideCamera, avZoom: 0.5, logicalZoom: 0.5,
                        isActive: isLensActive(0.5)) {
                 camera.switchToLens(type: .builtInUltraWideCamera, avZoom: 0.5, logicalZoom: 0.5)
-                onHaptic(.selection)
+                // ✅ REMOVED: onHaptic(.selection)
             }
             
             LensButton(label: wideZoomToggle == 1.0 ? "1" : "2",
                        type: .builtInWideAngleCamera, avZoom: wideZoomToggle, logicalZoom: wideZoomToggle,
                        isActive: isLensActive(wideZoomToggle)) {
                 camera.switchToLens(type: .builtInWideAngleCamera, avZoom: wideZoomToggle, logicalZoom: wideZoomToggle)
-                onHaptic(.selection)
+                // ✅ REMOVED: onHaptic(.selection)
             }
             .onTapGesture(count: 2) {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     wideZoomToggle = wideZoomToggle == 1.0 ? 2.0 : 1.0
                     camera.switchToLens(type: .builtInWideAngleCamera, avZoom: wideZoomToggle, logicalZoom: wideZoomToggle)
-                    onHaptic(.success)
+                    // ✅ REMOVED: onHaptic(.success)
                 }
             }
             
@@ -254,13 +243,13 @@ private struct ControlPanel: View {
                        type: .builtInTelephotoCamera, avZoom: teleZoomToggle, logicalZoom: teleZoomToggle * 5.0,
                        isActive: isLensActive(teleZoomToggle * 5.0)) {
                 camera.switchToLens(type: .builtInTelephotoCamera, avZoom: teleZoomToggle, logicalZoom: teleZoomToggle * 5.0)
-                onHaptic(.selection)
+                // ✅ REMOVED: onHaptic(.selection)
             }
             .onTapGesture(count: 2) {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     teleZoomToggle = teleZoomToggle == 1.0 ? 2.0 : 1.0
                     camera.switchToLens(type: .builtInTelephotoCamera, avZoom: teleZoomToggle, logicalZoom: teleZoomToggle * 5.0)
-                    onHaptic(.success)
+                    // ✅ REMOVED: onHaptic(.success)
                 }
             }
         }
@@ -272,14 +261,14 @@ private struct ControlPanel: View {
             ThumbnailView(capturedImage: camera.capturedImage).frame(width: 44)
             Spacer()
             ShutterButton(isCapturing: camera.isCapturing) {
-                onHaptic(.success)
+                // ✅ REMOVED: onHaptic(.success)
                 camera.capturePhoto()
             }
             Spacer()
             FlashButton(isOn: camera.isFlashOn) {
                 withAnimation {
                     camera.isFlashOn.toggle()
-                    onHaptic(.selection)
+                    // ✅ REMOVED: onHaptic(.selection)
                 }
             }
         }
@@ -290,7 +279,7 @@ private struct ControlPanel: View {
     }
 }
 
-// MARK: - Extracted Button Components (Fixes Timeouts & Inference)
+// MARK: - Button Components
 private struct ExposureButton: View {
     let value: Float
     let isActive: Bool
@@ -375,7 +364,7 @@ private struct FlashButton: View {
         .padding(.trailing, 24)
     }
 }
-// ✅ FIXED: Conform to ShapeStyle, not View
+
 private struct ConditionalGlassBackground: ShapeStyle {
     let isActive: Bool
     
@@ -410,7 +399,7 @@ struct ThumbnailView: View {
     }
 }
 
-// MARK: - ShutterButton (✅ FIXED: Added 'gradient:' label)
+// MARK: - ShutterButton (Optimized)
 struct ShutterButton: View {
     let isCapturing: Bool
     let action: () -> Void
@@ -424,7 +413,7 @@ struct ShutterButton: View {
                 Circle()
                     .stroke(.white.opacity(0.9), lineWidth: 2.5)
                     .frame(width: 82, height: 82)
-                    .shadow(color: .amber.opacity(0.3), radius: 10, y: 2)
+                    .shadow(color: .amber.opacity(0.2), radius: 6, y: 1) // ✅ Reduced shadow
                 
                 Circle()
                     .fill(shutterGradient)
@@ -432,29 +421,30 @@ struct ShutterButton: View {
                     .scaleEffect(isPressed ? 0.92 : 1.0)
                     .overlay(Circle().stroke(.black.opacity(0.1), lineWidth: 1))
                     .shadow(
-                        color: isCapturing ? .amber.opacity(0.6) : .black.opacity(0.35),
-                        radius: isPressed ? 4 : 12,
-                        y: isPressed ? 2 : 6
+                        color: isCapturing ? .amber.opacity(0.4) : .black.opacity(0.2), // ✅ Reduced opacity
+                        radius: isPressed ? 3 : 8, // ✅ Reduced radius
+                        y: isPressed ? 1 : 4
                     )
             }
         }
         .buttonStyle(.plain)
-        .sensoryFeedback(.impact(weight: .medium), trigger: isCapturing)
+        // ✅ REMOVED: .sensoryFeedback(.impact(weight: .medium), trigger: isCapturing)
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true }
                 .onEnded { _ in
-                    withAnimation(.spring(duration: 0.2)) { isPressed = false }
+                    withAnimation(.spring(duration: 0.2, bounce: 0)) { // ✅ Simplified spring
+                        isPressed = false
+                    }
                 }
         )
     }
     
-    // ✅ FIXED: Added 'gradient:' label to LinearGradient initializer
     private var shutterGradient: some ShapeStyle {
         let c1: Color = isCapturing ? .amber : .white
         let c2: Color = isCapturing ? .amber.opacity(0.85) : .white.opacity(0.92)
         return LinearGradient(
-            gradient: Gradient(colors: [c1, c2]),  // ← Added 'gradient:' label here
+            gradient: Gradient(colors: [c1, c2]),
             startPoint: .top,
             endPoint: .bottom
         )
