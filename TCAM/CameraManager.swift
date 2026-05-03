@@ -23,6 +23,8 @@ final class CameraManager {
     var photoPermissionGranted = false
     var showSavedBanner = false
     var exposureBias: Float = 0.0
+    var currentISO: Float           = 0   // live, updated via KVO
+    var currentShutterSpeed: Double = 0   // seconds, e.g. 0.002 → "1/500"
     var currentLens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera
     
     // ✅ Logical zoom for UI highlights & watermark (0.5, 1.0, 2.0, 5.0, 10.0)
@@ -37,15 +39,19 @@ final class CameraManager {
     private let sessionQueue = DispatchQueue(label: "tc.session", qos: .userInitiated)
     private let filterQueue = DispatchQueue(label: "tc.filter", qos: .userInteractive)
     private let coordinator: Coordinator
+    @ObservationIgnored
+    private var exposureObserver: NSKeyValueObservation?
 
     init() {
         self.coordinator = Coordinator(engine: engine)
         self.coordinator.manager = self
     }
 
-    deinit {
-        sessionQueue.async { [weak self] in self?.session.stopRunning() }
-    }
+
+      deinit {
+        exposureObserver?.invalidate()
+         sessionQueue.async { [weak self] in self?.session.stopRunning() }
+        }
 
     func requestPermissions() async {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -89,7 +95,21 @@ final class CameraManager {
                     coordinatorRef.photoOutput.maxPhotoQualityPrioritization = .quality
                 }
             }
-            sessionRef.commitConfiguration()
+                  sessionRef.commitConfiguration()
+                  if !sessionRef.isRunning { sessionRef.startRunning() }
+                  // Attach KVO to the active capture device
+                  if let device = (sessionRef.inputs.first as? AVCaptureDeviceInput)?.device {
+                      self.exposureObserver?.invalidate()
+                      self.exposureObserver = device.observe(\.iso, options: [.new]) { [weak self] dev, _ in
+            //              // Read both values together so they stay in sync
+                          let iso     = dev.iso
+                          let shutter = dev.exposureDuration.seconds
+                          Task { @MainActor [weak self] in
+                              self?.currentISO          = iso
+                              self?.currentShutterSpeed = shutter
+                          }
+                      }
+                  }
             if !sessionRef.isRunning { sessionRef.startRunning() }
         }
     }
