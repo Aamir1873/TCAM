@@ -339,7 +339,6 @@ extension UIImage.Orientation {
         }
     }
 }
-
 // MARK: - Location Delegate
 final class LocationDelegate: NSObject, CLLocationManagerDelegate {
     weak var manager: CameraManager?
@@ -351,7 +350,6 @@ final class LocationDelegate: NSObject, CLLocationManagerDelegate {
         guard let loc = locations.last else { return }
         Task { @MainActor [weak self] in self?.manager?.lastLocation = loc }
 
-        // Re-geocode only after moving >2 km — avoids hammering the API
         if let prev = lastResolvedCoordinate {
             let prevLoc = CLLocation(latitude: prev.latitude, longitude: prev.longitude)
             guard loc.distance(from: prevLoc) > 2000 else { return }
@@ -362,13 +360,31 @@ final class LocationDelegate: NSObject, CLLocationManagerDelegate {
 
     private func resolveLocation(_ location: CLLocation) {
         CLGeocoder().reverseGeocodeLocation(location) { [weak self] placemarks, _ in
-            guard let place = placemarks?.first else { return }
-            var parts: [String] = []
-            if let city    = place.locality ?? place.administrativeArea { parts.append(city) }
-            if let country = place.country                               { parts.append(country) }
+            guard let self, let place = placemarks?.first else { return }
+
+            // areasOfInterest is what the native iOS camera uses —
+            // returns named places like "The Pearl-Qatar", "Education City", "Duhail"
+            let placeName = place.areasOfInterest?.first
+                         ?? place.subLocality
+                         ?? place.locality
+                         ?? place.administrativeArea
+
+            guard let placeName else { return }
+
+            var parts: [String] = [placeName]
+            if let country = place.country, !self.isSmallCountry(place) {
+                parts.append(country)
+            }
+
             let result = parts.joined(separator: ", ")
             Task { @MainActor [weak self] in self?.manager?.lastLocationString = result }
         }
+    }
+
+    private func isSmallCountry(_ place: CLPlacemark) -> Bool {
+        let smallCountryCodes = ["QA", "AE", "BH", "KW", "SG", "MC", "LU", "MT", "MV"]
+        guard let code = place.isoCountryCode else { return false }
+        return smallCountryCodes.contains(code)
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
