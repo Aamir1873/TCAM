@@ -48,10 +48,11 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
-	
 	<key>NSCameraUsageDescription</key>
 	<string>TCAM needs access to your camera to capture photos and apply color filters in real time.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>TCAM needs permission to save your edited photos to the photo library.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>TCAM NEED LOCATION FOR LOCATION</string>
 </dict>
 </plist>

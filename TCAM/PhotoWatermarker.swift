@@ -1,45 +1,75 @@
 //
 //  PhotoWatermarker.swift
-//  TCAM — Dark Luxury Watermark
+//  TCAM — Dark Luxury Watermark v3
 //
 
 import UIKit
 import AVFoundation
+import CoreLocation
 
 final class PhotoWatermarker {
     private static let maxRenderWidth: CGFloat = 3840
+
+    // MARK: - Filter colour palette (matches CameraView swatch colours)
+    static func filterColor(for process: TechnicolorProcess) -> UIColor {
+        switch process {
+        case .native:     return UIColor(white: 1.0, alpha: 0.55)                          // neutral white
+        case .twoStrip:   return UIColor(red: 0.85, green: 0.50, blue: 0.40, alpha: 1.0)  // warm red
+        case .monopack:   return UIColor(red: 0.70, green: 0.70, blue: 0.70, alpha: 1.0)  // silver
+        case .threeStrip: return UIColor(red: 0.45, green: 0.72, blue: 0.58, alpha: 1.0)  // teal-green
+        default:          return UIColor(white: 0.75, alpha: 1.0)
+        }
+    }
+
+    static func filterDisplayName(for process: TechnicolorProcess) -> String {
+        switch process {
+        case .native:     return "NATIVE"
+        case .twoStrip:   return "TWO-STRIP"
+        case .monopack:   return "MONOPACK"
+        case .threeStrip: return "THREE-STRIP"
+        default:          return process.rawValue.uppercased()
+        }
+    }
+
+    // MARK: - Public entry point
 
     static func apply(
         to image: UIImage,
         metadata: [String: Any],
         zoomFactor: CGFloat,
+        process: TechnicolorProcess,
+        location: CLLocation?,
+        locationString: String?,   // pre-resolved "City, Country" — pass nil to skip
         isEnabled: Bool
     ) -> UIImage {
         guard isEnabled else { return image }
 
         let exif = metadata[kCGImagePropertyExifDictionary as String] as? [String: Any] ?? [:]
 
-        // ── Focal length ─────────────────────────────────────────────────
-        let focalString = formatFocalLength(for: zoomFactor)
+        // Focal length
+        let focalStr   = formatFocalLength(for: zoomFactor)
 
-        // ── Aperture ─────────────────────────────────────────────────────
+        // Aperture
         let fNumber    = exif[kCGImagePropertyExifFNumber as String] as? Double ?? 0
-        let fString    = fNumber > 0 ? String(format: "ƒ/%.1f", fNumber) : ""
+        let fStr       = fNumber > 0 ? String(format: "ƒ/%.1f", fNumber) : ""
 
-        // ── Shutter speed ─────────────────────────────────────────────────
-        let expTime     = exif[kCGImagePropertyExifExposureTime as String] as? Double ?? 0
-        let shutterStr  = expTime > 0 ? formatShutter(expTime) : ""
+        // Shutter speed
+        let expTime    = exif[kCGImagePropertyExifExposureTime as String] as? Double ?? 0
+        let shutterStr = expTime > 0 ? formatShutter(expTime) : ""
 
-        // ── ISO ───────────────────────────────────────────────────────────
+        // ISO
         let isoArray   = exif[kCGImagePropertyExifISOSpeedRatings as String] as? [Int] ?? []
-        let isoString  = isoArray.first.map { "ISO \($0)" } ?? ""
+        let isoStr     = isoArray.first.map { "ISO \($0)" } ?? ""
 
-        // ── Assemble — only non-empty parts, dot-separated ────────────────
-        let parts: [String] = [focalString, fString, shutterStr, isoString]
-            .filter { !$0.isEmpty }
-        let specsLine = parts.joined(separator: "  ·  ")
+        let parts      = [focalStr, fStr, shutterStr, isoStr].filter { !$0.isEmpty }
+        let specsLine  = parts.joined(separator: "  ·  ")
 
-        return render(on: image, specs: specsLine)
+        return render(
+            on: image,
+            specs: specsLine,
+            locationString: locationString,
+            process: process
+        )
     }
 
     // MARK: - Formatters
@@ -49,32 +79,36 @@ final class PhotoWatermarker {
         return "1/\(Int((1.0 / seconds).rounded()))s"
     }
 
-    /// iPhone 15 Pro Max 35mm-equivalent focal lengths
     private static func formatFocalLength(for zoom: CGFloat) -> String {
         switch zoom {
-        case ..<0.8:    return "13mm"   // 0.5× Ultra Wide
-        case 0.8..<1.8: return "24mm"   // 1× Main
-        case 1.8..<4.0: return "48mm"   // 2× Crop
-        case 4.0..<7.0: return "120mm"  // 5× Tele
-        default:        return "240mm"  // 10× Crop
+        case ..<0.8:    return "13mm"
+        case 0.8..<1.8: return "24mm"
+        case 1.8..<4.0: return "48mm"
+        case 4.0..<7.0: return "120mm"
+        default:        return "240mm"
         }
     }
 
     // MARK: - Renderer
 
-    private static func render(on image: UIImage, specs: String) -> UIImage {
-        let srcWidth    = image.size.width
-        let renderW     = min(srcWidth, maxRenderWidth)
-        let scale       = renderW / srcWidth
-        let renderH     = image.size.height * scale
+    private static func render(
+        on image: UIImage,
+        specs: String,
+        locationString: String?,
+        process: TechnicolorProcess
+    ) -> UIImage {
+        let srcWidth  = image.size.width
+        let renderW   = min(srcWidth, maxRenderWidth)
+        let scale     = renderW / srcWidth
+        let renderH   = image.size.height * scale
 
-        // Footer height scales with image so it looks proportional at any res
-        let footerH: CGFloat = renderW * 0.115   // ~11.5% of width → ~440pt @ 4K
-        let totalH   = renderH + footerH
+        // Taller footer — 16% of width gives generous room for 3 rows + right column
+        let footerH: CGFloat = renderW * 0.160
+        let totalH            = renderH + footerH
 
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1.0
-        let renderer = UIGraphicsImageRenderer(
+        let format        = UIGraphicsImageRendererFormat()
+        format.scale      = 1.0
+        let renderer      = UIGraphicsImageRenderer(
             size: CGSize(width: renderW, height: totalH),
             format: format
         )
@@ -85,85 +119,125 @@ final class PhotoWatermarker {
             // ── Photo ─────────────────────────────────────────────────────
             image.draw(in: CGRect(x: 0, y: 0, width: renderW, height: renderH))
 
-            // ── Dark footer ───────────────────────────────────────────────
+            // ── Footer background ─────────────────────────────────────────
             UIColor(white: 0.04, alpha: 1.0).setFill()
             ctx.fill(CGRect(x: 0, y: renderH, width: renderW, height: footerH))
 
-            // Top hairline — subtle separator
-            let hairlineColor = UIColor(white: 1.0, alpha: 0.10)
-            hairlineColor.setFill()
-            ctx.fill(CGRect(x: 0, y: renderH, width: renderW, height: max(1, renderW / 2000)))
+            // Top hairline
+            UIColor(white: 1.0, alpha: 0.12).setFill()
+            ctx.fill(CGRect(x: 0, y: renderH, width: renderW, height: max(2, renderW / 1500)))
 
-            // ── Typography scale (proportional to image width) ────────────
-            let specsSize  = renderW * 0.0220   // main specs — large & legible
-            let subSize    = renderW * 0.0120   // device sub-label — clearly readable
-            let brandSize  = renderW * 0.0140   // TCAM — visible on the right
+            // ── Type scale ────────────────────────────────────────────────
+            let specsSize  = renderW * 0.0270   // main specs — largest
+            let subSize    = renderW * 0.0155   // device + location row
+            let filterSize = renderW * 0.0145   // filter name on right
+            let brandSize  = renderW * 0.0190   // TCAM wordmark
 
-            let hPad    = renderW * 0.032
-            // Block of two text lines, vertically centred in footer
-            let lineGap = specsSize * 0.40
-            let blockH  = specsSize + lineGap + subSize
-            let blockY  = renderH + (footerH - blockH) / 2
+            let hPad       = renderW * 0.036
+            let vPad       = footerH * 0.18     // top margin inside footer
 
-            // ── Specs line (left-aligned) ─────────────────────────────────
-            let specsFont = UIFont(name: "HelveticaNeue-Light", size: specsSize)
-                         ?? UIFont.systemFont(ofSize: specsSize, weight: .light)
+            // ── LEFT COLUMN ───────────────────────────────────────────────
 
+            // Row 1 — specs
+            let specsFont  = UIFont(name: "HelveticaNeue-Light", size: specsSize)
+                          ?? UIFont.systemFont(ofSize: specsSize, weight: .light)
             let specsAttrs: [NSAttributedString.Key: Any] = [
                 .font:            specsFont,
-                .foregroundColor: UIColor(white: 1.0, alpha: 0.90),
-                .kern:            specsSize * 0.12
+                .foregroundColor: UIColor(white: 1.0, alpha: 0.92),
+                .kern:            specsSize * 0.10
             ]
             let specsSz = (specs as NSString).size(withAttributes: specsAttrs)
+            let specsY  = renderH + vPad
 
             (specs as NSString).draw(
-                in: CGRect(x: hPad, y: blockY, width: renderW - hPad * 2, height: specsSz.height),
+                in: CGRect(x: hPad, y: specsY, width: renderW * 0.72, height: specsSz.height),
                 withAttributes: specsAttrs
             )
 
-            // ── Sub-label: device name ────────────────────────────────────
-            let subFont = UIFont(name: "HelveticaNeue-Light", size: subSize)
-                       ?? UIFont.systemFont(ofSize: subSize, weight: .light)
+            // Row 2 — "iPhone 15 Pro Max  ·  City, Country"
+            let subFont  = UIFont(name: "HelveticaNeue-Light", size: subSize)
+                        ?? UIFont.systemFont(ofSize: subSize, weight: .light)
+
+            var subParts = ["iPhone 15 Pro Max"]
+            if let loc = locationString, !loc.isEmpty { subParts.append(loc) }
+            let subLine  = subParts.joined(separator: "  ·  ")
 
             let subAttrs: [NSAttributedString.Key: Any] = [
                 .font:            subFont,
-                .foregroundColor: UIColor(white: 1.0, alpha: 0.45),
-                .kern:            subSize * 0.28
+                .foregroundColor: UIColor(white: 1.0, alpha: 0.48),
+                .kern:            subSize * 0.22
             ]
-            let subStr = "iPhone 15 Pro Max" as NSString
-            let subSz  = subStr.size(withAttributes: subAttrs)
-            let subY   = blockY + specsSz.height + lineGap
+            let subSz   = (subLine as NSString).size(withAttributes: subAttrs)
+            let subY    = specsY + specsSz.height + specsSize * 0.35
 
-            subStr.draw(
-                in: CGRect(x: hPad, y: subY, width: subSz.width, height: subSz.height),
+            (subLine as NSString).draw(
+                in: CGRect(x: hPad, y: subY, width: renderW * 0.72, height: subSz.height),
                 withAttributes: subAttrs
             )
 
-            // ── Brand mark (right-aligned, vertically centred) ────────────
-            let brandFont = UIFont(name: "HelveticaNeue-Light", size: brandSize)
-                         ?? UIFont.systemFont(ofSize: brandSize, weight: .light)
+            // ── RIGHT COLUMN ──────────────────────────────────────────────
+            // Vertically centred in the footer, right-aligned
 
+            let rightCentreY = renderH + footerH * 0.5
+
+            // TCAM wordmark
+            let brandFont  = UIFont(name: "HelveticaNeue-Thin", size: brandSize)
+                          ?? UIFont.systemFont(ofSize: brandSize, weight: .thin)
             let brandAttrs: [NSAttributedString.Key: Any] = [
                 .font:            brandFont,
-                .foregroundColor: UIColor(white: 1.0, alpha: 0.50),
-                .kern:            brandSize * 0.50
+                .foregroundColor: UIColor(white: 1.0, alpha: 0.65),
+                .kern:            brandSize * 0.55
             ]
-            let brandStr = "TCAM" as NSString
-            let brandSz  = brandStr.size(withAttributes: brandAttrs)
-            let brandX   = renderW - hPad - brandSz.width
-            let brandY   = renderH + (footerH - brandSz.height) / 2
+            let brandStr  = "TCAM" as NSString
+            let brandSz   = brandStr.size(withAttributes: brandAttrs)
 
+            // Filter name (coloured, below TCAM)
+            let filterFont  = UIFont(name: "HelveticaNeue-Light", size: filterSize)
+                           ?? UIFont.systemFont(ofSize: filterSize, weight: .light)
+            let filterColor  = PhotoWatermarker.filterColor(for: process)
+            let filterName   = PhotoWatermarker.filterDisplayName(for: process)
+            let filterAttrs: [NSAttributedString.Key: Any] = [
+                .font:            filterFont,
+                .foregroundColor: filterColor,
+                .kern:            filterSize * 0.40
+            ]
+            let filterStr  = filterName as NSString
+            let filterSz   = filterStr.size(withAttributes: filterAttrs)
+
+            // Stack TCAM + filter, centre the block vertically
+            let gap        = brandSize * 0.30
+            let blockH     = brandSz.height + gap + filterSz.height
+            let blockTop   = rightCentreY - blockH / 2
+
+            let brandX     = renderW - hPad - brandSz.width
             brandStr.draw(
-                in: CGRect(x: brandX, y: brandY, width: brandSz.width, height: brandSz.height),
+                in: CGRect(x: brandX, y: blockTop, width: brandSz.width, height: brandSz.height),
                 withAttributes: brandAttrs
             )
 
-            // ── Corner mark — bottom-right L-bracket ──────────────────────
-            let markLen: CGFloat = renderW * 0.012
-            let markThk: CGFloat = max(1, renderW / 2200)
-            let mx = renderW - hPad * 0.7
-            let my = renderH + footerH - hPad * 0.7
-            cgCtx.setStrokeColor(UIColor(white: 1.0, alpha: 0.18).cgColor)
+            let filterX    = renderW - hPad - filterSz.width
+            filterStr.draw(
+                in: CGRect(x: filterX, y: blockTop + brandSz.height + gap,
+                           width: filterSz.width, height: filterSz.height),
+                withAttributes: filterAttrs
+            )
+
+            // ── Vertical rule between columns ─────────────────────────────
+            let ruleX      = renderW * 0.76
+            let ruleTop    = renderH + footerH * 0.20
+            let ruleBot    = renderH + footerH * 0.80
+            cgCtx.setStrokeColor(UIColor(white: 1.0, alpha: 0.10).cgColor)
+            cgCtx.setLineWidth(max(1, renderW / 2000))
+            cgCtx.move(to: CGPoint(x: ruleX, y: ruleTop))
+            cgCtx.addLine(to: CGPoint(x: ruleX, y: ruleBot))
+            cgCtx.strokePath()
+
+            // ── Corner mark ───────────────────────────────────────────────
+            let markLen = renderW * 0.014
+            let markThk = max(1.5, renderW / 1800)
+            let mx      = renderW - hPad * 0.65
+            let my      = renderH + footerH - hPad * 0.65
+            cgCtx.setStrokeColor(UIColor(white: 1.0, alpha: 0.20).cgColor)
             cgCtx.setLineWidth(markThk)
             cgCtx.move(to: CGPoint(x: mx - markLen, y: my))
             cgCtx.addLine(to: CGPoint(x: mx, y: my))

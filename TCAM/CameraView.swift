@@ -364,7 +364,7 @@ private struct ExposureRow: View {
                     HStack(spacing: 4) {
                         Image(systemName: value == 0 ? "circle" : (value > 0 ? "plus" : "minus"))
                             .font(.system(size: 9, weight: .medium))
-                        Text(value == 0 ? "0 EV" : (value > 0 ? "+1 EV" : "−1 EV"))
+                        Text(value == 0 ? "0 EV" : (value > 0 ? "1 EV" : "1 EV"))
                             .font(DS.monoSm)
                             .tracking(0.5)
                     }
