@@ -36,37 +36,36 @@ private enum DS {
     static let pillH: CGFloat            = 40
 }
 
-// MARK: - Glass Modifiers
+// MARK: - Glass Effect Modifiers
 private extension View {
-    func luxuryPill(highlighted: Bool = false) -> some View {
-        self
-            .background(highlighted ? DS.gold.opacity(0.15) : DS.surface)
-            .overlay(Capsule().stroke(highlighted ? DS.gold.opacity(0.5) : DS.border, lineWidth: 0.75))
-            .clipShape(Capsule())
-    }
-
-    func luxuryCircle(highlighted: Bool = false) -> some View {
-        self
-            .background(highlighted ? DS.gold.opacity(0.18) : DS.surface)
-            .overlay(Circle().stroke(highlighted ? DS.gold.opacity(0.55) : DS.border, lineWidth: 0.75))
-            .clipShape(Circle())
-    }
-
-    func luxuryCard() -> some View {
-        self
-            .background(DS.surface)
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(DS.border, lineWidth: 0.75))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-
-    // Hairline rule — cinematic letterbox feel
-    func topRule() -> some View {
-        self.overlay(alignment: .top) {
-            Rectangle()
-                .fill(DS.border)
-                .frame(height: 0.5)
+    func glassEffect(shape: GlassShape = .pill) -> some View {
+        switch shape {
+        case .pill:
+            return AnyView(
+                self
+                    .glassEffect()
+                    .clipShape(Capsule())
+            )
+        case .circle:
+            return AnyView(
+                self
+                    .glassEffect()
+                    .clipShape(Circle())
+            )
+        case .card:
+            return AnyView(
+                self
+                    .glassEffect()
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            )
         }
     }
+}
+
+enum GlassShape {
+    case pill
+    case circle
+    case card
 }
 
 // MARK: - Main Camera View
@@ -383,9 +382,7 @@ private struct ExposureRow: View {
             }
         }
         .padding(4)
-        .background(DS.surface)
-        .overlay(Capsule().stroke(DS.border, lineWidth: 0.75))
-        .clipShape(Capsule())
+        .glassEffect(shape: .pill)
     }
 }
 
@@ -418,7 +415,7 @@ private struct FilterRow: View {
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
-                    .background(isSelected ? DS.gold.opacity(0.10) : DS.surface)
+                    .background(isSelected ? DS.gold.opacity(0.10) : Color.clear)
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
                             .stroke(isSelected ? DS.gold.opacity(0.45) : DS.border, lineWidth: 0.75)
@@ -493,9 +490,7 @@ private struct LensRow: View {
             }
         }
         .frame(height: DS.pillH)
-        .background(DS.surface)
-        .overlay(Capsule().stroke(DS.border, lineWidth: 0.75))
-        .clipShape(Capsule())
+        .glassEffect(shape: .pill)
     }
 
     private func isLensActive(_ logicalZoom: CGFloat) -> Bool {
@@ -651,11 +646,8 @@ private struct FlashButton: View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .fill(isOn ? DS.gold.opacity(0.15) : DS.surface)
+                    .glassEffect(shape: .circle)
                     .frame(width: 48, height: 48)
-                    .overlay(
-                        Circle().stroke(isOn ? DS.gold.opacity(0.5) : DS.border, lineWidth: 0.75)
-                    )
                 Image(systemName: isOn ? "bolt.fill" : "bolt.slash")
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(isOn ? DS.gold : DS.textDim)
@@ -679,7 +671,7 @@ struct ThumbnailView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.92)))
             } else {
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(DS.surface)
+                    .glassEffect(shape: .card)
                     .overlay(
                         Image(systemName: "photo")
                             .font(.system(size: 15))
