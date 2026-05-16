@@ -2,6 +2,7 @@
 //  CameraView.swift
 //  TCAM — Dark Luxury / Cinematic UI
 //  Optimized for iPhone 15 Pro Max (430×932pt, Dynamic Island)
+//  ✅ FIXED: glassEffect recursion bug → renamed to glassCard
 //
 
 import SwiftUI
@@ -36,14 +37,15 @@ private enum DS {
     static let pillH: CGFloat            = 40
 }
 
-// MARK: - Glass Effect Modifiers
+// MARK: - Glass Effect Modifiers (✅ FIXED: renamed to avoid recursion)
 private extension View {
-    func glassEffect(shape: GlassShape = .pill) -> some View {
+    @available(iOS 17.0, *)
+    func glassCard(shape: GlassShape = .pill) -> some View {
         switch shape {
         case .pill:
             return AnyView(
                 self
-                    .glassEffect()
+                    .glassEffect()  // ✅ Now correctly calls SwiftUI's built-in modifier
                     .clipShape(Capsule())
             )
         case .circle:
@@ -308,6 +310,7 @@ struct ExposureInfoChip: View {
         .animation(.easeInOut(duration: 0.2), value: isoLabel)
     }
 }
+
 // MARK: - Control Panel
 private struct ControlPanel: View {
     var camera: CameraManager
@@ -382,7 +385,7 @@ private struct ExposureRow: View {
             }
         }
         .padding(4)
-        .glassEffect(shape: .pill)
+        .glassCard(shape: .pill)  // ✅ FIXED: renamed from glassEffect
     }
 }
 
@@ -490,7 +493,7 @@ private struct LensRow: View {
             }
         }
         .frame(height: DS.pillH)
-        .glassEffect(shape: .pill)
+        .glassCard(shape: .pill)  // ✅ FIXED: renamed from glassEffect
     }
 
     private func isLensActive(_ logicalZoom: CGFloat) -> Bool {
@@ -646,7 +649,7 @@ private struct FlashButton: View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .glassEffect(shape: .circle)
+                    .glassCard(shape: .circle)  // ✅ FIXED: renamed from glassEffect
                     .frame(width: 48, height: 48)
                 Image(systemName: isOn ? "bolt.fill" : "bolt.slash")
                     .font(.system(size: 17, weight: .medium))
@@ -671,7 +674,7 @@ struct ThumbnailView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.92)))
             } else {
                 RoundedRectangle(cornerRadius: 10)
-                    .glassEffect(shape: .card)
+                    .glassCard(shape: .card)  // ✅ FIXED: renamed from glassEffect
                     .overlay(
                         Image(systemName: "photo")
                             .font(.system(size: 15))
