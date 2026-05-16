@@ -64,11 +64,15 @@ final class PhotoWatermarker {
         let parts      = [focalStr, fStr, shutterStr, isoStr].filter { !$0.isEmpty }
         let specsLine  = parts.joined(separator: "  ·  ")
 
+        // Determine if image is landscape (width > height)
+        let isLandscape = image.size.width > image.size.height
+
         return render(
             on: image,
             specs: specsLine,
             locationString: locationString,
-            process: process
+            process: process,
+            isLandscape: isLandscape
         )
     }
 
@@ -95,7 +99,8 @@ final class PhotoWatermarker {
         on image: UIImage,
         specs: String,
         locationString: String?,
-        process: TechnicolorProcess
+        process: TechnicolorProcess,
+        isLandscape: Bool
     ) -> UIImage {
         let srcWidth  = image.size.width
         let renderW   = min(srcWidth, maxRenderWidth)
@@ -136,7 +141,12 @@ final class PhotoWatermarker {
             let hPad       = renderW * 0.036
             let vPad       = footerH * 0.18     // top margin inside footer
 
-            // ── LEFT COLUMN ───────────────────────────────────────────────
+            // Determine watermark side based on orientation
+            // Landscape photos: watermark on left; Portrait photos: watermark on right
+            let watermarkOnLeft = isLandscape
+
+            // ── LEFT COLUMN (specs) ───────────────────────────────────────
+            let leftColumnX: CGFloat = hPad
 
             // Row 1 — specs
             let specsFont  = UIFont(name: "HelveticaNeue-Light", size: specsSize)
@@ -150,7 +160,7 @@ final class PhotoWatermarker {
             let specsY  = renderH + vPad
 
             (specs as NSString).draw(
-                in: CGRect(x: hPad, y: specsY, width: renderW * 0.72, height: specsSz.height),
+                in: CGRect(x: leftColumnX, y: specsY, width: renderW * 0.72, height: specsSz.height),
                 withAttributes: specsAttrs
             )
 
@@ -171,12 +181,12 @@ final class PhotoWatermarker {
             let subY    = specsY + specsSz.height + specsSize * 0.35
 
             (subLine as NSString).draw(
-                in: CGRect(x: hPad, y: subY, width: renderW * 0.72, height: subSz.height),
+                in: CGRect(x: leftColumnX, y: subY, width: renderW * 0.72, height: subSz.height),
                 withAttributes: subAttrs
             )
 
             // ── RIGHT COLUMN ──────────────────────────────────────────────
-            // Vertically centred in the footer, right-aligned
+            // Vertically centred in the footer, position depends on orientation
 
             let rightCentreY = renderH + footerH * 0.5
 
@@ -209,13 +219,14 @@ final class PhotoWatermarker {
             let blockH     = brandSz.height + gap + filterSz.height
             let blockTop   = rightCentreY - blockH / 2
 
-            let brandX     = renderW - hPad - brandSz.width
+            // Position brand/filter column based on orientation
+            let brandX     = watermarkOnLeft ? renderW - hPad - brandSz.width : hPad + renderW * 0.24
             brandStr.draw(
                 in: CGRect(x: brandX, y: blockTop, width: brandSz.width, height: brandSz.height),
                 withAttributes: brandAttrs
             )
 
-            let filterX    = renderW - hPad - filterSz.width
+            let filterX    = watermarkOnLeft ? renderW - hPad - filterSz.width : hPad + renderW * 0.24
             filterStr.draw(
                 in: CGRect(x: filterX, y: blockTop + brandSz.height + gap,
                            width: filterSz.width, height: filterSz.height),
@@ -223,7 +234,7 @@ final class PhotoWatermarker {
             )
 
             // ── Vertical rule between columns ─────────────────────────────
-            let ruleX      = renderW * 0.76
+            let ruleX      = watermarkOnLeft ? renderW * 0.76 : renderW * 0.24
             let ruleTop    = renderH + footerH * 0.20
             let ruleBot    = renderH + footerH * 0.80
             cgCtx.setStrokeColor(UIColor(white: 1.0, alpha: 0.10).cgColor)
@@ -235,13 +246,21 @@ final class PhotoWatermarker {
             // ── Corner mark ───────────────────────────────────────────────
             let markLen = renderW * 0.014
             let markThk = max(1.5, renderW / 1800)
-            let mx      = renderW - hPad * 0.65
+            let mx      = watermarkOnLeft ? renderW - hPad * 0.65 : hPad * 0.65 + markLen
             let my      = renderH + footerH - hPad * 0.65
             cgCtx.setStrokeColor(UIColor(white: 1.0, alpha: 0.20).cgColor)
             cgCtx.setLineWidth(markThk)
-            cgCtx.move(to: CGPoint(x: mx - markLen, y: my))
-            cgCtx.addLine(to: CGPoint(x: mx, y: my))
-            cgCtx.addLine(to: CGPoint(x: mx, y: my - markLen))
+            if watermarkOnLeft {
+                // Right corner mark (standard L shape)
+                cgCtx.move(to: CGPoint(x: mx - markLen, y: my))
+                cgCtx.addLine(to: CGPoint(x: mx, y: my))
+                cgCtx.addLine(to: CGPoint(x: mx, y: my - markLen))
+            } else {
+                // Left corner mark (mirrored L shape)
+                cgCtx.move(to: CGPoint(x: mx, y: my))
+                cgCtx.addLine(to: CGPoint(x: mx - markLen, y: my))
+                cgCtx.addLine(to: CGPoint(x: mx - markLen, y: my - markLen))
+            }
             cgCtx.strokePath()
         }
     }
