@@ -13,43 +13,34 @@
 # Xcode
 *.xcodeproj/
 *.xcworkspace/
+*.pbxuser
+*.mode1v3
+*.perspectivev3
 *.xcuserstate
-xcuserdata/
+*.xccheckout
+*.moved-aside
 build/
 DerivedData/
 
 # Swift
 *.swiftmodule
 *.swiftdoc
-*.swiftdeps
-
-# Dependencies
-Carthage/
-Pods/
-vendor/
-
-# Logs
-*.log
+*.swiftsourceinfo
 
 # Temporary files
 *.tmp
 *.temp
-*.DS_Store
-Thumbs.db
+*.log
+*.swp
+*.swo
 
 # Environment
 .env
 .env.local
 *.env.*
 
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+# Dependencies
+Pods/
+Carthage/
+vendor/
 ```

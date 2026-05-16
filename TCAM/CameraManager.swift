@@ -19,7 +19,7 @@ final class CameraManager {
     var filteredFrame: CGImage?
     var capturedImage: UIImage?
     var isCapturing = false
-    var currentProcess: TechnicolorProcess = .native
+    var currentProcess: TechnicolorProcess = .cinematic
     var isFlashOn = false
     var permissionState: PermissionState = .unknown
     var photoPermissionGranted = false
@@ -32,7 +32,7 @@ final class CameraManager {
     var lastLocationString: String?
 
     @ObservationIgnored nonisolated(unsafe) var logicalZoomFactor: CGFloat = 1.0
-    @ObservationIgnored nonisolated(unsafe) var currentProcessCache: TechnicolorProcess = .native
+    @ObservationIgnored nonisolated(unsafe) var currentProcessCache: TechnicolorProcess = .cinematic
     @ObservationIgnored nonisolated(unsafe) var watermarkEnabled = true
 
     let cameraPosition: AVCaptureDevice.Position = .back
@@ -305,7 +305,7 @@ private final class Coordinator: NSObject,
     ) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let ciImage  = CIImage(cvPixelBuffer: pixelBuffer, options: [.applyOrientationProperty: true])
-        let process  = manager?.currentProcessCache ?? .native
+        let process  = manager?.currentProcessCache ?? .cinematic
         let filtered = engine.apply(process, to: ciImage)
         guard let cgImage = engine.context.createCGImage(filtered, from: filtered.extent) else { return }
         Task { @MainActor [weak manager] in manager?.filteredFrame = cgImage }
@@ -324,7 +324,7 @@ private final class Coordinator: NSObject,
             return
         }
 
-        let process     = manager?.currentProcessCache ?? .native
+        let process     = manager?.currentProcessCache ?? .cinematic
         let filtered    = engine.apply(process, to: ciSource)
 
         guard let cg = engine.context.createCGImage(filtered, from: filtered.extent) else {
