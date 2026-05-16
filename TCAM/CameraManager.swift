@@ -31,6 +31,7 @@ final class CameraManager {
     var lastLocation: CLLocation?
     var lastLocationString: String?
     var captureAspectRatio: CGFloat = 4.0 / 3.0
+    var displayLogicalZoomFactor: CGFloat = 1.0
 
     @ObservationIgnored nonisolated(unsafe) var logicalZoomFactor: CGFloat = 1.0
     @ObservationIgnored nonisolated(unsafe) var currentProcessCache: TechnicolorProcess = .cinematic
@@ -185,6 +186,7 @@ final class CameraManager {
 
     func switchToLens(type: AVCaptureDevice.DeviceType, avZoom: CGFloat, logicalZoom: CGFloat) {
         currentLens       = type
+        displayLogicalZoomFactor = logicalZoom
         logicalZoomFactor = logicalZoom
         activeLensType    = type
 

@@ -493,7 +493,7 @@ private struct LensRow: View {
     }
 
     private func isLensActive(_ logicalZoom: CGFloat) -> Bool {
-        abs(camera.logicalZoomFactor - logicalZoom) < 0.15
+        abs(camera.displayLogicalZoomFactor - logicalZoom) < 0.15
     }
 }
 
