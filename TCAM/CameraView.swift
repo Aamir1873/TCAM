@@ -96,11 +96,9 @@ struct CameraView: View {
             Color.black.ignoresSafeArea()
 
             ImageOrPlaceholder(frame: camera.filteredFrame)
-                .resizable()
                 .aspectRatio(contentMode: aspectRatio == 16.0 / 9.0 ? .fit : .fill)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
-                .ignoresSafeArea(edges: .all)
                 .gesture(pinchGesture)
 
             // Shutter flash overlay
@@ -237,15 +235,10 @@ struct CameraView: View {
     private func ImageOrPlaceholder(frame: CGImage?) -> some View {
         if let frame {
             Image(uiImage: UIImage(cgImage: frame))
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
         } else {
             ProgressView()
                 .tint(DS.gold)
                 .scaleEffect(1.4)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

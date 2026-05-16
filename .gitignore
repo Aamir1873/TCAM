@@ -1,46 +1,11 @@
-```
-# Build artifacts
-*.o
-*.obj
-*.a
-*.lib
-*.dylib
-*.so
-*.dll
-*.exe
-*.out
-
-# Xcode
-*.xcodeproj/
-*.xcworkspace/
-*.pbxuser
-*.mode1v3
-*.perspectivev3
-*.xcuserstate
-*.xccheckout
-*.moved-aside
-build/
-DerivedData/
-
-# Swift
 *.swiftmodule
 *.swiftdoc
-*.swiftsourceinfo
-
-# Temporary files
-*.tmp
-*.temp
+*.dSYM/
+build/
+DerivedData/
 *.log
-*.swp
-*.swo
-
-# Environment
-.env
-.env.local
-*.env.*
-
-# Dependencies
-Pods/
-Carthage/
-vendor/
-```
+xcuserdata/
+.xcodeproj/project.xcworkspace/xcuserdata/
+.xcodeproj/xcuserdata/
+.idea/
+.vscode/
