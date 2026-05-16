@@ -96,8 +96,8 @@ struct CameraView: View {
             Color.black.ignoresSafeArea()
 
             ImageOrPlaceholder(frame: camera.filteredFrame)
-                .aspectRatio(contentMode: aspectRatio == 16.0 / 9.0 ? .fit : .fill)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .aspectRatio(aspectRatio == 16.0 / 9.0 ? 16.0/9.0 : nil, contentMode: .fit)
                 .clipped()
                 .gesture(pinchGesture)
 
