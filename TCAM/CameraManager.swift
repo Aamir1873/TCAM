@@ -30,6 +30,7 @@ final class CameraManager {
     var currentLens: AVCaptureDevice.DeviceType = .builtInWideAngleCamera
     var lastLocation: CLLocation?
     var lastLocationString: String?
+    var captureAspectRatio: CGFloat = 4.0 / 3.0
 
     @ObservationIgnored nonisolated(unsafe) var logicalZoomFactor: CGFloat = 1.0
     @ObservationIgnored nonisolated(unsafe) var currentProcessCache: TechnicolorProcess = .cinematic
@@ -348,8 +349,10 @@ private final class Coordinator: NSObject,
             let location       = manager.lastLocation        // ✅ safe — on MainActor
             let locationString = manager.lastLocationString  // ✅ safe — on MainActor
 
+            let cropped = original.croppedToLongSideAspectRatio(manager.captureAspectRatio)
+
             let final = PhotoWatermarker.apply(
-                to:             original,
+                to:             cropped,
                 metadata:       metadata,
                 zoomFactor:     zoom,
                 process:        process,
@@ -386,6 +389,67 @@ extension UIImage.Orientation {
         case 5: .leftMirrored; case 6: .right
         case 7: .rightMirrored; case 8: .left
         default: .up
+        }
+    }
+}
+
+// MARK: - Aspect Ratio Crop
+private extension UIImage {
+    func croppedToLongSideAspectRatio(_ longSideRatio: CGFloat) -> UIImage {
+        guard longSideRatio > 0 else { return self }
+
+        let upright = normalizedForCropping()
+        guard let cgImage = upright.cgImage else { return self }
+
+        let sourceWidth = CGFloat(cgImage.width)
+        let sourceHeight = CGFloat(cgImage.height)
+        let targetRatio = sourceHeight >= sourceWidth ? 1 / longSideRatio : longSideRatio
+        let sourceRatio = sourceWidth / sourceHeight
+
+        let cropRect: CGRect
+        if sourceRatio > targetRatio {
+            let cropWidth = sourceHeight * targetRatio
+            cropRect = CGRect(
+                x: (sourceWidth - cropWidth) / 2,
+                y: 0,
+                width: cropWidth,
+                height: sourceHeight
+            )
+        } else {
+            let cropHeight = sourceWidth / targetRatio
+            cropRect = CGRect(
+                x: 0,
+                y: (sourceHeight - cropHeight) / 2,
+                width: sourceWidth,
+                height: cropHeight
+            )
+        }
+
+        let integralCropRect = cropRect.integral
+        guard let cropped = cgImage.cropping(to: integralCropRect) else { return upright }
+        return UIImage(cgImage: cropped, scale: upright.scale, orientation: .up)
+    }
+
+    private func normalizedForCropping() -> UIImage {
+        guard imageOrientation != .up else { return self }
+
+        let normalizedSize = imageOrientation.isSideways ? CGSize(width: size.height, height: size.width) : size
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        let renderer = UIGraphicsImageRenderer(size: normalizedSize, format: format)
+        return renderer.image { _ in
+            draw(in: CGRect(origin: .zero, size: normalizedSize))
+        }
+    }
+}
+
+private extension UIImage.Orientation {
+    var isSideways: Bool {
+        switch self {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            return true
+        default:
+            return false
         }
     }
 }

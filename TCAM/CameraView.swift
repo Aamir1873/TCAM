@@ -95,10 +95,7 @@ struct CameraView: View {
             // ── Viewfinder ──────────────────────────────────────────────
             Color.black.ignoresSafeArea()
 
-            ImageOrPlaceholder(frame: camera.filteredFrame)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .aspectRatio(aspectRatio == 16.0 / 9.0 ? 16.0/9.0 : nil, contentMode: .fit)
-                .clipped()
+            ViewfinderImage(frame: camera.filteredFrame, aspectRatio: aspectRatio)
                 .gesture(pinchGesture)
 
             // Shutter flash overlay
@@ -107,20 +104,6 @@ struct CameraView: View {
                 .opacity(shutterFlash ? 0.18 : 0)
                 .animation(.easeOut(duration: 0.25), value: shutterFlash)
                 .allowsHitTesting(false)
-
-            // ── Cinematic letterbox bars (only for 16:9) ─────────────────────────────────
-            if aspectRatio == 16.0 / 9.0 {
-                VStack(spacing: 0) {
-                    LetterboxBar(edge: .top)
-                        .frame(maxWidth: .infinity)
-                    Spacer(minLength: 0)
-                    LetterboxBar(edge: .bottom)
-                        .frame(maxWidth: .infinity)
-                }
-                .ignoresSafeArea(edges: [.horizontal])
-                .allowsHitTesting(false)
-                .transition(.opacity)
-            }
 
             // ── HUD: focal length chip ───────────────────────────────────
             VStack {
@@ -160,6 +143,9 @@ struct CameraView: View {
             }
         }
         .background(.black)
+        .onChange(of: aspectRatio) { _, newValue in
+            camera.captureAspectRatio = newValue
+        }
         .onChange(of: scenePhase) { camera.handleScenePhase($1) }
         .animation(.easeInOut(duration: 0.3), value: aspectRatio)
         .task {
@@ -231,32 +217,41 @@ struct CameraView: View {
         }
     }
 
-    @ViewBuilder
-    private func ImageOrPlaceholder(frame: CGImage?) -> some View {
-        if let frame {
-            Image(uiImage: UIImage(cgImage: frame))
-        } else {
-            ProgressView()
-                .tint(DS.gold)
-                .scaleEffect(1.4)
-        }
-    }
 }
 
-// MARK: - Letterbox Bar
-private struct LetterboxBar: View {
-    enum Edge { case top, bottom }
-    let edge: Edge
+// MARK: - Viewfinder
+private struct ViewfinderImage: View {
+    let frame: CGImage?
+    let aspectRatio: CGFloat
 
     var body: some View {
-        LinearGradient(
-            colors: edge == .top
-                ? [.black, .black.opacity(0.6), .clear]
-                : [.clear, .black.opacity(0.65), .black],
-            startPoint: edge == .top ? .top : .bottom,
-            endPoint:   edge == .top ? .bottom : .top
-        )
-        .frame(height: edge == .top ? 130 : 200)
+        GeometryReader { proxy in
+            let displayRatio = displayAspectRatio(in: proxy.size)
+
+            ZStack {
+                Color.black
+
+                if let frame {
+                    Image(uiImage: UIImage(cgImage: frame))
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .clipped()
+                } else {
+                    ProgressView()
+                        .tint(DS.gold)
+                        .scaleEffect(1.4)
+                }
+            }
+            .aspectRatio(displayRatio, contentMode: .fit)
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .ignoresSafeArea()
+    }
+
+    private func displayAspectRatio(in size: CGSize) -> CGFloat {
+        guard aspectRatio > 0 else { return 1 }
+        return size.height >= size.width ? 1 / aspectRatio : aspectRatio
     }
 }
 
