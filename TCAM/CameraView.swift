@@ -80,6 +80,7 @@ struct CameraView: View {
     @State private var pinchZoom: CGFloat       = 1.0
     @State private var lastPinchZoom: CGFloat   = 1.0
     @State private var zoomUpdateTask: Task<Void, Never>?
+    @State private var aspectRatio: CGFloat     = 4.0 / 3.0  // Default to 4:3 standard (can toggle to 16:9 cinematic)
 
     // Animation states
     @State private var controlsVisible = false
@@ -95,10 +96,10 @@ struct CameraView: View {
             Color.black.ignoresSafeArea()
 
             ImageOrPlaceholder(frame: camera.filteredFrame)
-                .aspectRatio(4.0 / 3.0, contentMode: .fit)
+                .aspectRatio(aspectRatio, contentMode: .fill)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
-                .ignoresSafeArea()
+                .ignoresSafeArea(edges: aspectRatio == 16.0 / 9.0 ? [.horizontal] : .all)
                 .gesture(pinchGesture)
 
             // Shutter flash overlay
@@ -108,14 +109,18 @@ struct CameraView: View {
                 .animation(.easeOut(duration: 0.25), value: shutterFlash)
                 .allowsHitTesting(false)
 
-            // ── Cinematic letterbox bars ─────────────────────────────────
-            VStack {
-                LetterboxBar(edge: .top)
-                Spacer()
-                LetterboxBar(edge: .bottom)
+            // ── Cinematic letterbox bars (only for 16:9) ─────────────────────────────────
+            if aspectRatio == 16.0 / 9.0 {
+                VStack(spacing: 0) {
+                    LetterboxBar(edge: .top)
+                        .frame(maxWidth: .infinity)
+                    Spacer(minLength: 0)
+                    LetterboxBar(edge: .bottom)
+                        .frame(maxWidth: .infinity)
+                }
+                .ignoresSafeArea(edges: [.horizontal])
+                .allowsHitTesting(false)
             }
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
 
             // ── HUD: focal length chip ───────────────────────────────────
             VStack {
@@ -146,6 +151,7 @@ struct CameraView: View {
                     exposurePresets: exposurePresets,
                     wideZoomToggle: $wideZoomToggle,
                     teleZoomToggle: $teleZoomToggle,
+                    aspectRatio: $aspectRatio,
                     onCapture: triggerShutterFeedback
                 )
                 .offset(y: controlsVisible ? 0 : 60)
@@ -318,6 +324,7 @@ private struct ControlPanel: View {
     let exposurePresets: [Float]
     @Binding var wideZoomToggle: CGFloat
     @Binding var teleZoomToggle: CGFloat
+    @Binding var aspectRatio: CGFloat
     let onCapture: () -> Void
 
     var body: some View {
@@ -342,8 +349,8 @@ private struct ControlPanel: View {
                 teleZoomToggle: $teleZoomToggle
             )
 
-            // ── Row 4: Shutter ───────────────────────────────────────────
-            ShutterRow(camera: camera, onCapture: onCapture)
+            // ── Row 4: Shutter + Aspect Ratio ────────────────────────────
+            ShutterRow(camera: camera, onCapture: onCapture, aspectRatio: $aspectRatio)
         }
         .padding(.horizontal, DS.hPad)
     }
@@ -540,6 +547,7 @@ private struct SegmentDivider: View {
 private struct ShutterRow: View {
     var camera: CameraManager
     let onCapture: () -> Void
+    @Binding var aspectRatio: CGFloat
 
     var body: some View {
         HStack(alignment: .center) {
@@ -553,10 +561,30 @@ private struct ShutterRow: View {
 
             Spacer()
 
-            // Flash
-            FlashButton(isOn: camera.isFlashOn) {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    camera.isFlashOn.toggle()
+            // Aspect Ratio Toggle + Flash
+            HStack(spacing: 8) {
+                // Aspect Ratio Toggle
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        aspectRatio = aspectRatio == 16.0 / 9.0 ? 4.0 / 3.0 : 16.0 / 9.0
+                    }
+                } label: {
+                    Text(aspectRatio == 16.0 / 9.0 ? "16:9" : "4:3")
+                        .font(DS.monoSm)
+                        .foregroundStyle(aspectRatio == 16.0 / 9.0 ? DS.gold : DS.textDim)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(aspectRatio == 16.0 / 9.0 ? DS.scrim : Color.clear)
+                        .overlay(Capsule().stroke(aspectRatio == 16.0 / 9.0 ? DS.gold.opacity(0.35) : DS.border, lineWidth: 0.75))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(ScaleButtonStyle(scale: 0.94))
+
+                // Flash
+                FlashButton(isOn: camera.isFlashOn) {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        camera.isFlashOn.toggle()
+                    }
                 }
             }
         }
