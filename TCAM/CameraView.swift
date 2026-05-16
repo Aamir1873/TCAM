@@ -87,7 +87,7 @@ struct CameraView: View {
     @State private var hudVisible      = false
     @State private var shutterFlash    = false
 
-    private let filters: [TechnicolorProcess]  = [.native, .twoStrip, .monopack, .threeStrip]
+    private let filters: [TechnicolorProcess]  = [.cinematic, .twoStrip, .monopack, .threeStrip]
     private let exposurePresets: [Float]        = [-1.0, 0.0, 1.0]
 
     var body: some View {
@@ -96,10 +96,11 @@ struct CameraView: View {
             Color.black.ignoresSafeArea()
 
             ImageOrPlaceholder(frame: camera.filteredFrame)
-                .aspectRatio(aspectRatio, contentMode: .fill)
+                .resizable()
+                .aspectRatio(contentMode: aspectRatio == 16.0 / 9.0 ? .fit : .fill)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
-                .ignoresSafeArea(edges: aspectRatio == 16.0 / 9.0 ? [.horizontal] : .all)
+                .ignoresSafeArea(edges: .all)
                 .gesture(pinchGesture)
 
             // Shutter flash overlay
@@ -120,6 +121,7 @@ struct CameraView: View {
                 }
                 .ignoresSafeArea(edges: [.horizontal])
                 .allowsHitTesting(false)
+                .transition(.opacity)
             }
 
             // ── HUD: focal length chip ───────────────────────────────────
@@ -161,6 +163,7 @@ struct CameraView: View {
         }
         .background(.black)
         .onChange(of: scenePhase) { camera.handleScenePhase($1) }
+        .animation(.easeInOut(duration: 0.3), value: aspectRatio)
         .task {
             await camera.requestPermissions()
             withAnimation(.spring(response: 0.55, dampingFraction: 0.82).delay(0.1)) {
@@ -439,7 +442,7 @@ private struct FilterRow: View {
 
     private func swatchColor(for filter: TechnicolorProcess) -> Color {
         switch filter {
-        case .native:    return Color.white.opacity(0.6)
+        case .cinematic: return Color(red: 0.4, green: 0.7, blue: 0.9)      // cool cyan-blue
         case .twoStrip:  return Color(red: 0.85, green: 0.50, blue: 0.40)  // warm red
         case .monopack:  return Color(red: 0.70, green: 0.70, blue: 0.70)  // silver
         case .threeStrip:return Color(red: 0.45, green: 0.72, blue: 0.58)  // teal-green

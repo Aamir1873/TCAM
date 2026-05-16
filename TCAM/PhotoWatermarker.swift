@@ -13,21 +13,19 @@ final class PhotoWatermarker {
     // MARK: - Filter colour palette (matches CameraView swatch colours)
     static func filterColor(for process: TechnicolorProcess) -> UIColor {
         switch process {
-        case .native:     return UIColor(white: 1.0, alpha: 0.55)                          // neutral white
+        case .cinematic:  return UIColor(red: 0.4, green: 0.7, blue: 0.9, alpha: 1.0)   // cool cyan-blue
         case .twoStrip:   return UIColor(red: 0.85, green: 0.50, blue: 0.40, alpha: 1.0)  // warm red
         case .monopack:   return UIColor(red: 0.70, green: 0.70, blue: 0.70, alpha: 1.0)  // silver
         case .threeStrip: return UIColor(red: 0.45, green: 0.72, blue: 0.58, alpha: 1.0)  // teal-green
-        default:          return UIColor(white: 0.75, alpha: 1.0)
         }
     }
 
     static func filterDisplayName(for process: TechnicolorProcess) -> String {
         switch process {
-        case .native:     return "NATIVE"
+        case .cinematic:  return "CINEMATIC"
         case .twoStrip:   return "TWO-STRIP"
         case .monopack:   return "MONOPACK"
         case .threeStrip: return "THREE-STRIP"
-        default:          return process.rawValue.uppercased()
         }
     }
 

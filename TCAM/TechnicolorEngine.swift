@@ -69,9 +69,9 @@ final class TechnicolorEngine: Sendable {
 
         // CINEMATIC - Blue/Green boosted, Orange muted
         ccCine.saturation = 1.1; ccCine.brightness = 0.02; ccCine.contrast = 1.08
-        cmCine.rVector    = CIVector(x: 0.85,  y: 0.0,   z: 0.0,  w: 0)  // Mute reds/oranges
-        cmCine.gVector    = CIVector(x: 0.0,   y: 1.15,  z: 0.0,  w: 0)  // Boost greens
-        cmCine.bVector    = CIVector(x: 0.0,   y: 0.0,   z: 1.18, w: 0)  // Boost blues
+        cmCine.rVector    = CIVector(x: 0.85,  y: 0.06,  z: 0.0,  w: 0)  // Mute reds/oranges (keep some green in red channel)
+        cmCine.gVector    = CIVector(x: 0.06,  y: 1.15,  z: 0.06, w: 0)  // Boost greens (add slight bleed from R/B)
+        cmCine.bVector    = CIVector(x: 0.0,   y: 0.05,  z: 1.18, w: 0)  // Boost blues (add slight green bleed)
         cmCine.aVector    = CIVector(x: 0,     y: 0,     z: 0,    w: 1)
         cmCine.biasVector = CIVector(x: 0.02,  y: 0.03,  z: 0.04, w: 0)  // Add cool tint
         vigCine.intensity = 0.4; vigCine.radius = 1.7
@@ -83,11 +83,10 @@ final class TechnicolorEngine: Sendable {
 
     func apply(_ process: TechnicolorProcess, to image: CIImage) -> CIImage {
         switch process {
+        case .cinematic:  cinematic(image)
         case .threeStrip: threeStrip(image)
         case .twoStrip:   twoStrip(image)
         case .monopack:   monopack(image)
-        case .cinematic:  cinematic(image)
-        case .native:     image
         }
     }
 
