@@ -226,8 +226,6 @@ private struct ViewfinderImage: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let displayRatio = displayAspectRatio(in: proxy.size)
-
             ZStack {
                 Color.black
 
@@ -243,15 +241,15 @@ private struct ViewfinderImage: View {
                         .scaleEffect(1.4)
                 }
             }
-            .aspectRatio(displayRatio, contentMode: .fit)
+            .aspectRatio(displayAspectRatio, contentMode: .fit)
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .ignoresSafeArea()
     }
 
-    private func displayAspectRatio(in size: CGSize) -> CGFloat {
+    private var displayAspectRatio: CGFloat {
         guard aspectRatio > 0 else { return 1 }
-        return size.height >= size.width ? 1 / aspectRatio : aspectRatio
+        return 1 / aspectRatio
     }
 }
 

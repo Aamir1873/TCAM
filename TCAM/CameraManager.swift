@@ -105,8 +105,7 @@ final class CameraManager {
         let coordinatorRef = self.coordinator
         let filterQueueRef = self.filterQueue
         
-        // Get initial orientation
-        let initialRotationAngle = getRotationAngleForOrientation(UIDevice.current.orientation)
+        let previewRotationAngle = getRotationAngleForOrientation(.portrait)
 
         sessionQueue.async {
             sessionRef.beginConfiguration()
@@ -120,13 +119,12 @@ final class CameraManager {
 
                 if sessionRef.canAddOutput(coordinatorRef.videoOutput) {
                     sessionRef.addOutput(coordinatorRef.videoOutput)
-                    coordinatorRef.videoOutput.connection(with: .video)?.videoRotationAngle = initialRotationAngle
-                    coordinatorRef.videoOutput.connection(with: .video)?.isVideoMirrored = isFront
                 }
                 if sessionRef.canAddOutput(coordinatorRef.photoOutput) {
                     sessionRef.addOutput(coordinatorRef.photoOutput)
                     coordinatorRef.photoOutput.maxPhotoQualityPrioritization = .quality
                 }
+                coordinatorRef.updateVideoConnection(rotationAngle: previewRotationAngle, isMirrored: isFront)
             }
 
             sessionRef.commitConfiguration()
@@ -195,8 +193,7 @@ final class CameraManager {
         let sessionRef     = self.session
         let coordinatorRef = self.coordinator
         
-        // Get current orientation for rotation
-        let rotationAngle = getRotationAngleForOrientation(UIDevice.current.orientation)
+        let previewRotationAngle = getRotationAngleForOrientation(.portrait)
 
         sessionQueue.async {
             sessionRef.beginConfiguration()
@@ -205,10 +202,7 @@ final class CameraManager {
                 sessionRef.removeInput(currentInput)
                 self.addInput(session: sessionRef, position: position, preferredLens: type)
             }
-            if let conn = coordinatorRef.videoOutput.connection(with: .video) {
-                conn.videoRotationAngle = rotationAngle
-                conn.isVideoMirrored    = isFront
-            }
+            coordinatorRef.updateVideoConnection(rotationAngle: previewRotationAngle, isMirrored: isFront)
             if let device = (sessionRef.inputs.first as? AVCaptureDeviceInput)?.device {
                 try? device.lockForConfiguration()
                 let clamped = max(device.minAvailableVideoZoomFactor,
@@ -230,24 +224,23 @@ final class CameraManager {
         case .portraitUpsideDown:
             return -90
         case .landscapeLeft:
-            return 180
-        case .landscapeRight:
             return 0
+        case .landscapeRight:
+            return 180
         default:
             return 90
         }
     }
 
     private func updateVideoRotationForOrientation() {
-        let orientation = UIDevice.current.orientation
-        guard orientation.isValidInterfaceOrientation else { return }
-        let rotationAngle = getRotationAngleForOrientation(orientation)
-        
+        let previewRotationAngle = getRotationAngleForOrientation(.portrait)
+
         sessionQueue.async { [weak self] in
             guard let self else { return }
-            if let conn = self.coordinator.videoOutput.connection(with: .video) {
-                conn.videoRotationAngle = rotationAngle
-            }
+            self.coordinator.updateVideoConnection(
+                rotationAngle: previewRotationAngle,
+                isMirrored: self.cameraPosition == .front
+            )
         }
     }
 
@@ -278,7 +271,15 @@ final class CameraManager {
         let settings = AVCapturePhotoSettings()
         settings.flashMode = isFlashOn ? .on : .off
         settings.maxPhotoDimensions = coordinator.photoOutput.maxPhotoDimensions
-        coordinator.photoOutput.capturePhoto(with: settings, delegate: coordinator)
+
+        let rotationAngle = getRotationAngleForOrientation(UIDevice.current.orientation)
+        let isFront = cameraPosition == .front
+        let coordinatorRef = coordinator
+
+        sessionQueue.async {
+            coordinatorRef.updatePhotoConnection(rotationAngle: rotationAngle, isMirrored: isFront)
+            coordinatorRef.photoOutput.capturePhoto(with: settings, delegate: coordinatorRef)
+        }
     }
 
     func updateProcess(_ process: TechnicolorProcess) {
@@ -298,6 +299,24 @@ private final class Coordinator: NSObject,
     weak var manager: CameraManager?
 
     init(engine: TechnicolorEngine) { self.engine = engine }
+
+    nonisolated func updateVideoConnection(rotationAngle: CGFloat, isMirrored: Bool) {
+        update(connection: videoOutput.connection(with: .video), rotationAngle: rotationAngle, isMirrored: isMirrored)
+    }
+
+    nonisolated func updatePhotoConnection(rotationAngle: CGFloat, isMirrored: Bool) {
+        update(connection: photoOutput.connection(with: .video), rotationAngle: rotationAngle, isMirrored: isMirrored)
+    }
+
+    private nonisolated func update(connection: AVCaptureConnection?, rotationAngle: CGFloat, isMirrored: Bool) {
+        guard let connection else { return }
+        if connection.isVideoRotationAngleSupported(rotationAngle) {
+            connection.videoRotationAngle = rotationAngle
+        }
+        if connection.isVideoMirroringSupported {
+            connection.isVideoMirrored = isMirrored
+        }
+    }
 
     nonisolated func captureOutput(
         _ output: AVCaptureOutput,
