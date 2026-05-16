@@ -29,6 +29,10 @@ final class TechnicolorEngine: Sendable {
     nonisolated(unsafe) private let gamMono  = CIFilter(name: "CIGammaAdjust")
     nonisolated(unsafe) private let vigMono  = CIFilter.vignette()
 
+    nonisolated(unsafe) private let ccCine   = CIFilter.colorControls()
+    nonisolated(unsafe) private let cmCine   = CIFilter.colorMatrix()
+    nonisolated(unsafe) private let vigCine  = CIFilter.vignette()
+
     nonisolated(unsafe) private let blurFilter   = CIFilter.gaussianBlur()
     nonisolated(unsafe) private let blurMultiply = CIFilter(name: "CIMultiplyCompositing")!
     nonisolated(unsafe) private let blurColorMat = CIFilter.colorMatrix()
@@ -63,6 +67,15 @@ final class TechnicolorEngine: Sendable {
         gamMono?.setValue(0.88, forKey: "inputPower")
         vigMono.intensity = 0.35; vigMono.radius = 1.8
 
+        // CINEMATIC - Blue/Green boosted, Orange muted
+        ccCine.saturation = 1.1; ccCine.brightness = 0.02; ccCine.contrast = 1.08
+        cmCine.rVector    = CIVector(x: 0.85,  y: 0.0,   z: 0.0,  w: 0)  // Mute reds/oranges
+        cmCine.gVector    = CIVector(x: 0.0,   y: 1.15,  z: 0.0,  w: 0)  // Boost greens
+        cmCine.bVector    = CIVector(x: 0.0,   y: 0.0,   z: 1.18, w: 0)  // Boost blues
+        cmCine.aVector    = CIVector(x: 0,     y: 0,     z: 0,    w: 1)
+        cmCine.biasVector = CIVector(x: 0.02,  y: 0.03,  z: 0.04, w: 0)  // Add cool tint
+        vigCine.intensity = 0.4; vigCine.radius = 1.7
+
         // Halation setup
         blurFilter.radius = 12
         blurColorMat.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
@@ -73,6 +86,7 @@ final class TechnicolorEngine: Sendable {
         case .threeStrip: threeStrip(image)
         case .twoStrip:   twoStrip(image)
         case .monopack:   monopack(image)
+        case .cinematic:  cinematic(image)
         case .native:     image
         }
     }
@@ -103,6 +117,14 @@ final class TechnicolorEngine: Sendable {
         }
         vigMono.inputImage = img; img = vigMono.outputImage ?? img
         return halation(img, amount: 0.06)
+    }
+
+    private func cinematic(_ image: CIImage) -> CIImage {
+        ccCine.inputImage = image
+        var img = ccCine.outputImage ?? image
+        cmCine.inputImage = img; img = cmCine.outputImage ?? img
+        vigCine.inputImage = img; img = vigCine.outputImage ?? img
+        return halation(img, amount: 0.05)
     }
 
     private func halation(_ image: CIImage, amount: Float) -> CIImage {

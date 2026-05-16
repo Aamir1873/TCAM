@@ -8,6 +8,7 @@ import SwiftUI
 import CoreImage
 import Photos
 import CoreLocation
+import UIKit
 
 @Observable
 @MainActor
@@ -45,14 +46,27 @@ final class CameraManager {
 
     @ObservationIgnored private lazy var locationDelegate = LocationDelegate(manager: self)
     @ObservationIgnored private var exposureObserver: NSKeyValueObservation?
+    @ObservationIgnored private var orientationObserver: NSObjectProtocol?
 
     init() {
         self.coordinator = Coordinator(engine: engine)
         self.coordinator.manager = self
+        
+        // Observe device orientation changes to update video rotation
+        orientationObserver = NotificationCenter.default.addObserver(
+            forName: UIDevice.orientationDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updateVideoRotationForOrientation()
+        }
     }
 
     deinit {
         exposureObserver?.invalidate()
+        if let observer = orientationObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
         sessionQueue.async { [weak self] in self?.session.stopRunning() }
     }
 
@@ -89,6 +103,9 @@ final class CameraManager {
         let sessionRef     = self.session
         let coordinatorRef = self.coordinator
         let filterQueueRef = self.filterQueue
+        
+        // Get initial orientation
+        let initialRotationAngle = getRotationAngleForOrientation(UIDevice.current.orientation)
 
         sessionQueue.async {
             sessionRef.beginConfiguration()
@@ -102,7 +119,7 @@ final class CameraManager {
 
                 if sessionRef.canAddOutput(coordinatorRef.videoOutput) {
                     sessionRef.addOutput(coordinatorRef.videoOutput)
-                    coordinatorRef.videoOutput.connection(with: .video)?.videoRotationAngle = 90
+                    coordinatorRef.videoOutput.connection(with: .video)?.videoRotationAngle = initialRotationAngle
                     coordinatorRef.videoOutput.connection(with: .video)?.isVideoMirrored = isFront
                 }
                 if sessionRef.canAddOutput(coordinatorRef.photoOutput) {
@@ -176,6 +193,9 @@ final class CameraManager {
         let isFront        = position == .front
         let sessionRef     = self.session
         let coordinatorRef = self.coordinator
+        
+        // Get current orientation for rotation
+        let rotationAngle = getRotationAngleForOrientation(UIDevice.current.orientation)
 
         sessionQueue.async {
             sessionRef.beginConfiguration()
@@ -185,7 +205,7 @@ final class CameraManager {
                 self.addInput(session: sessionRef, position: position, preferredLens: type)
             }
             if let conn = coordinatorRef.videoOutput.connection(with: .video) {
-                conn.videoRotationAngle = 90
+                conn.videoRotationAngle = rotationAngle
                 conn.isVideoMirrored    = isFront
             }
             if let device = (sessionRef.inputs.first as? AVCaptureDeviceInput)?.device {
@@ -197,6 +217,36 @@ final class CameraManager {
             }
             sessionRef.commitConfiguration()
             if !sessionRef.isRunning { sessionRef.startRunning() }
+        }
+    }
+
+    // MARK: - Orientation
+
+    private func getRotationAngleForOrientation(_ orientation: UIDeviceOrientation) -> CGFloat {
+        switch orientation {
+        case .portrait:
+            return 90
+        case .portraitUpsideDown:
+            return -90
+        case .landscapeLeft:
+            return 180
+        case .landscapeRight:
+            return 0
+        default:
+            return 90
+        }
+    }
+
+    private func updateVideoRotationForOrientation() {
+        let orientation = UIDevice.current.orientation
+        guard orientation.isValidInterfaceOrientation else { return }
+        let rotationAngle = getRotationAngleForOrientation(orientation)
+        
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            if let conn = self.coordinator.videoOutput.connection(with: .video) {
+                conn.videoRotationAngle = rotationAngle
+            }
         }
     }
 
