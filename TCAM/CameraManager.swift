@@ -415,7 +415,10 @@ private final class Coordinator: NSObject, @unchecked Sendable,
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        guard CMSampleBufferGetFormatDescription(sampleBuffer) != nil,
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
+              CVPixelBufferGetWidth(pixelBuffer) > 0,
+              CVPixelBufferGetHeight(pixelBuffer) > 0 else { return }
         let ciImage  = CIImage(cvPixelBuffer: pixelBuffer, options: [.applyOrientationProperty: true])
         let process  = manager?.processSnapshot() ?? .cinematic
         guard let cgImage = engine.render(process, image: ciImage) else { return }

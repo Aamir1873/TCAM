@@ -118,13 +118,13 @@ final class TechnicolorEngine: Sendable {
         let image = CIImage(cgImage: cgImage, options: [
             .colorSpace: displayP3
         ])
-        return context.jpegRepresentation(
-            of: image,
-            colorSpace: displayP3,
-            options: [
-                kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: quality
-            ]
-        )
+        guard let p3Image = context.createCGImage(
+            image,
+            from: image.extent,
+            format: .RGBA8,
+            colorSpace: displayP3
+        ) else { return nil }
+        return UIImage(cgImage: p3Image).jpegData(compressionQuality: quality)
     }
 
     private func applyUnlocked(_ process: TechnicolorProcess, to image: CIImage) -> CIImage {
