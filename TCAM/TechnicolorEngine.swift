@@ -120,7 +120,9 @@ final class TechnicolorEngine: Sendable {
     }
 
     func sourceImage(from data: Data, isRaw: Bool) -> CIImage? {
-        if isRaw, let rawFilter = CIFilter(imageData: data, options: nil) {
+        if isRaw, let rawFilter = CIFilter(imageData: data, options: [
+            .ignoreImageOrientation: true
+        ]) {
             return rawFilter.outputImage
         }
         return CIImage(data: data)

@@ -445,18 +445,14 @@ private final class Coordinator: NSObject, @unchecked Sendable,
             return
         }
 
-        // ProRAW pixel data is commonly stored in the sensor's native layout.
-        // Apply its EXIF orientation before rendering so the later UIKit framing
-        // step receives physically upright pixels rather than a rotated image.
         let orientationKey = kCGImagePropertyOrientation as String
         let exifOrientation = (photo.metadata[orientationKey] as? NSNumber)?.int32Value ?? 1
-        let orientedSource = ciSource.oriented(forExifOrientation: exifOrientation)
         
         let process = captureContext.process
         // The finished image is capped at 3840 px. Downsize the
         // ProRAW frame before creating a CGImage so a 48 MP capture does not
         // create several full-resolution UIKit bitmaps during processing.
-        guard let cg = engine.render(process, image: orientedSource, maximumDimension: 3840) else {
+        guard let cg = engine.render(process, image: ciSource, maximumDimension: 3840) else {
             Task { @MainActor [weak manager] in
                 manager?.isCapturing = false
                 manager?.captureErrorMessage = "The image processor could not render the ProRAW frame."
@@ -464,7 +460,11 @@ private final class Coordinator: NSObject, @unchecked Sendable,
             return
         }
         
-        let original = UIImage(cgImage: cg, scale: 1.0, orientation: .up)
+        let original = UIImage(
+            cgImage: cg,
+            scale: 1.0,
+            orientation: .fromEXIFOrientation(exifOrientation)
+        )
         let processingQueue = photoProcessingQueue
         let engine = engine
         let manager = manager
@@ -509,6 +509,21 @@ private final class Coordinator: NSObject, @unchecked Sendable,
 }
 
 // MARK: - Aspect Ratio Crop & Orientation (Updated)
+private extension UIImage.Orientation {
+    static func fromEXIFOrientation(_ value: Int32) -> UIImage.Orientation {
+        switch value {
+        case 2:  return .upMirrored
+        case 3:  return .down
+        case 4:  return .downMirrored
+        case 5:  return .leftMirrored
+        case 6:  return .right
+        case 7:  return .rightMirrored
+        case 8:  return .left
+        default: return .up
+        }
+    }
+}
+
 private extension UIImage {
 
     /// Fits the image inside an editorial gallery mat at the requested aspect
