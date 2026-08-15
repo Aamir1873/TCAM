@@ -321,7 +321,10 @@ final class CameraManager {
     // MARK: - Capture
 
     func capturePhoto() {
-        guard !isCapturing else { return }
+        guard permissionState == .granted,
+              session.isRunning,
+              coordinator.photoOutput.connection(with: .video) != nil,
+              !isCapturing else { return }
         fireShutter()
     }
 
@@ -329,7 +332,8 @@ final class CameraManager {
         isCapturing = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         let settings = AVCapturePhotoSettings()
-        settings.flashMode = isFlashOn ? .on : .off
+        let flashSupported = coordinator.photoOutput.supportedFlashModes.contains(.on)
+        settings.flashMode = isFlashOn && flashSupported ? .on : .off
         settings.maxPhotoDimensions = coordinator.photoOutput.maxPhotoDimensions
 
         let rotationAngle = getRotationAngleForOrientation(UIDevice.current.orientation)

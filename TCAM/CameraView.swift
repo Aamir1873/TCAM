@@ -88,6 +88,7 @@ struct CameraView: View {
     @State private var controlsVisible = false
     @State private var hudVisible      = false
     @State private var shutterFlash    = false
+    @State private var isShowingPhotoPreview = false
 
     private let filters: [TechnicolorProcess]  = [.cinematic, .twoStrip, .monopack, .threeStrip]
     private let exposurePresets: [Float]        = [-1.0, 0.0, 1.0]
@@ -161,6 +162,13 @@ struct CameraView: View {
             }
         }
         .transaction { $0.animation = nil }
+        .fullScreenCover(isPresented: $isShowingPhotoPreview) {
+            if let image = camera.capturedImage {
+                PhotoPreviewView(image: image) {
+                    isShowingPhotoPreview = false
+                }
+            }
+        }
     }
 
     // MARK: Helpers
@@ -342,7 +350,12 @@ private struct ControlPanel: View {
             )
 
             // ── Row 4: Shutter + Aspect Ratio ────────────────────────────
-            ShutterRow(camera: camera, onCapture: onCapture, aspectRatio: $aspectRatio)
+                ShutterRow(
+                    camera: camera,
+                    onCapture: onCapture,
+                    onPreview: { isShowingPhotoPreview = true },
+                    aspectRatio: $aspectRatio
+                )
         }
         .padding(.horizontal, DS.hPad)
     }
@@ -600,12 +613,13 @@ private struct SegmentDivider: View {
 private struct ShutterRow: View {
     var camera: CameraManager
     let onCapture: () -> Void
+    let onPreview: () -> Void
     @Binding var aspectRatio: CameraManager.AspectRatio  // ✅ Enum binding
 
     var body: some View {
         HStack(alignment: .center) {
             // Thumbnail
-            ThumbnailView(capturedImage: camera.capturedImage)
+            ThumbnailView(capturedImage: camera.capturedImage, onTap: onPreview)
 
             Spacer()
 
@@ -624,11 +638,11 @@ private struct ShutterRow: View {
                 } label: {
                     Text(aspectRatio.displayLabel)
                         .font(DS.monoSm)
-                        .foregroundStyle(aspectRatio == .widescreen ? DS.gold : DS.textDim)
+                        .foregroundStyle(aspectRatio == .standard ? DS.textDim : DS.gold)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(aspectRatio == .widescreen ? DS.scrim : Color.clear)
-                        .overlay(Capsule().stroke(aspectRatio == .widescreen ? DS.gold.opacity(0.35) : DS.border, lineWidth: 0.75))
+                        .background(aspectRatio == .standard ? Color.clear : DS.scrim)
+                        .overlay(Capsule().stroke(aspectRatio == .standard ? DS.border : DS.gold.opacity(0.35), lineWidth: 0.75))
                         .clipShape(Capsule())
                 }
                 .buttonStyle(ScaleButtonStyle(scale: 0.94))
@@ -745,6 +759,7 @@ private struct FlashButton: View {
 // MARK: - Thumbnail View
 struct ThumbnailView: View {
     let capturedImage: UIImage?
+    let onTap: () -> Void
 
     var body: some View {
         ZStack {
@@ -768,6 +783,40 @@ struct ThumbnailView: View {
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(DS.border, lineWidth: 0.75))
         .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
         .padding(.leading, 6)
+        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .onTapGesture {
+            guard capturedImage != nil else { return }
+            onTap()
+        }
+        .accessibilityLabel(capturedImage == nil ? "No captured photo" : "View captured photo")
+        .accessibilityAddTraits(capturedImage == nil ? [] : .isButton)
+    }
+}
+
+private struct PhotoPreviewView: View {
+    let image: UIImage
+    let onDismiss: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .ignoresSafeArea(edges: .horizontal)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 42, height: 42)
+                    .background(.black.opacity(0.55), in: Circle())
+            }
+            .buttonStyle(ScaleButtonStyle(scale: 0.9))
+            .padding(.top, 18)
+            .padding(.trailing, 18)
+            .accessibilityLabel("Close photo preview")
+        }
+        .statusBarHidden(true)
     }
 }
 
