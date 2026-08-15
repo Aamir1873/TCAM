@@ -138,7 +138,8 @@ struct CameraView: View {
                     wideZoomToggle: $wideZoomToggle,
                     teleZoomToggle: $teleZoomToggle,
                     aspectRatio: $aspectRatio,  // ✅ Now binds to AspectRatio enum
-                    onCapture: triggerShutterFeedback
+                    onCapture: triggerShutterFeedback,
+                    onPreview: { isShowingPhotoPreview = true }
                 )
                 .offset(y: controlsVisible ? 0 : 60)
                 .opacity(controlsVisible ? 1 : 0)
@@ -326,6 +327,7 @@ private struct ControlPanel: View {
     @Binding var teleZoomToggle: CGFloat
     @Binding var aspectRatio: CameraManager.AspectRatio  // ✅ Enum binding
     let onCapture: () -> Void
+    let onPreview: () -> Void
 
     var body: some View {
         VStack(spacing: DS.rowSpacing) {
@@ -353,7 +355,7 @@ private struct ControlPanel: View {
                 ShutterRow(
                     camera: camera,
                     onCapture: onCapture,
-                    onPreview: { isShowingPhotoPreview = true },
+                    onPreview: onPreview,
                     aspectRatio: $aspectRatio
                 )
         }
