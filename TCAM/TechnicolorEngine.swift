@@ -101,6 +101,13 @@ final class TechnicolorEngine: Sendable {
         return context.createCGImage(filtered, from: filtered.extent)
     }
 
+    func sourceImage(from data: Data, isRaw: Bool) -> CIImage? {
+        if isRaw, let rawFilter = CIFilter(imageData: data, options: nil) {
+            return rawFilter.outputImage
+        }
+        return CIImage(data: data)
+    }
+
     private func applyUnlocked(_ process: TechnicolorProcess, to image: CIImage) -> CIImage {
         switch process {
         case .cinematic:  cinematic(image)

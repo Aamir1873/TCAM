@@ -320,7 +320,12 @@ final class CameraManager {
     private func fireShutter() {
         isCapturing = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        let settings = AVCapturePhotoSettings()
+        let settings: AVCapturePhotoSettings
+        if let rawFormat = coordinator.photoOutput.availableRawPhotoPixelFormatTypes.first {
+            settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
+        } else {
+            settings = AVCapturePhotoSettings()
+        }
         settings.photoQualityPrioritization = .quality
         let flashSupported = coordinator.photoOutput.supportedFlashModes.contains(.on)
         settings.flashMode = isFlashOn && flashSupported ? .on : .off
@@ -405,7 +410,7 @@ private final class Coordinator: NSObject,
     ) {
         guard error == nil,
               let data = photo.fileDataRepresentation(),
-              let ciSource = CIImage(data: data)
+              let ciSource = engine.sourceImage(from: data, isRaw: photo.isRawPhoto)
         else {
             Task { @MainActor [weak manager] in manager?.isCapturing = false }
             return
