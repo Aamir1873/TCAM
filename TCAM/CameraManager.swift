@@ -240,6 +240,10 @@ final class CameraManager {
         let previewRotationAngle = getRotationAngleForOrientation(deviceOrientation)
 
         sessionQueue.async {
+            // Reconfigure only while the session is stopped. Removing or replacing
+            // the active input while video delivery is running can expose transient
+            // invalid format descriptions to the sample-buffer callback.
+            if sessionRef.isRunning { sessionRef.stopRunning() }
             sessionRef.beginConfiguration()
             if let currentInput = sessionRef.inputs.first as? AVCaptureDeviceInput,
                currentInput.device.deviceType != type {
