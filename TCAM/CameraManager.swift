@@ -614,7 +614,7 @@ final class LocationDelegate: NSObject, @unchecked Sendable, CLLocationManagerDe
             guard let self, let request = MKReverseGeocodingRequest(location: location) else { return }
             let mapItems: [MKMapItem]
             do {
-                mapItems = try await request.mapItems()
+                mapItems = try await request.mapItems
             } catch {
                 return
             }
