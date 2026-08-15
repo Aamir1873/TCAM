@@ -3,7 +3,7 @@
 //  TCAM
 //
 
-import SwiftUI
+@preconcurrency import SwiftUI
 @preconcurrency import AVFoundation
 import CoreImage
 import Photos
@@ -73,7 +73,7 @@ final class CameraManager {
 
     @ObservationIgnored private lazy var locationDelegate = LocationDelegate(manager: self)
     @ObservationIgnored private var exposureObserver: NSKeyValueObservation?
-    @ObservationIgnored private var orientationObserver: NSObjectProtocol?
+    @ObservationIgnored nonisolated(unsafe) private var orientationObserver: NSObjectProtocol?
 
     init() {
         self.coordinator = Coordinator(engine: engine)
@@ -143,7 +143,7 @@ final class CameraManager {
         
         let previewRotationAngle = getRotationAngleForOrientation(deviceOrientation)
 
-        sessionQueue.async {
+        sessionQueue.async { [weak self] in
             sessionRef.beginConfiguration()
             sessionRef.sessionPreset = .photo
             sessionRef.inputs.forEach  { sessionRef.removeInput($0) }
@@ -192,7 +192,7 @@ final class CameraManager {
     func handleScenePhase(_ phase: ScenePhase) {
         guard permissionState == .granted else { return }
         let sessionRef = self.session
-        sessionQueue.async {
+        sessionQueue.async { [weak self] in
             switch phase {
             case .active:     if !sessionRef.isRunning { sessionRef.startRunning() }
             case .background: if  sessionRef.isRunning { sessionRef.stopRunning()  }
@@ -308,7 +308,7 @@ final class CameraManager {
 
     func setExposureBias(_ ev: Float) {
         let sessionRef = self.session
-        sessionQueue.async {
+        sessionQueue.async { [weak self] in
             guard let device = (sessionRef.inputs.first as? AVCaptureDeviceInput)?.device else { return }
             try? device.lockForConfiguration()
             let clamped = max(device.minExposureTargetBias, min(ev, device.maxExposureTargetBias))
@@ -612,15 +612,13 @@ final class LocationDelegate: NSObject, @unchecked Sendable, CLLocationManagerDe
     private func resolveLocation(_ location: CLLocation) {
         Task { @MainActor [weak self] in
             guard let self, let request = MKReverseGeocodingRequest(location: location) else { return }
-            request.getMapItems { [weak self] mapItems, _ in
-                guard let self, let mapItem = mapItems?.first else { return }
+            guard let mapItem = try? await request.mapItems().first else { return }
 
-                let placeName = mapItem.addressRepresentations?.cityWithContext(.full)
-                    ?? mapItem.address?.shortAddress
-                    ?? mapItem.address?.fullAddress
-                guard let placeName else { return }
-                self.manager?.lastLocationString = placeName
-            }
+            let placeName = mapItem.addressRepresentations?.cityWithContext(.full)
+                ?? mapItem.address?.shortAddress
+                ?? mapItem.address?.fullAddress
+            guard let placeName else { return }
+            self.manager?.lastLocationString = placeName
         }
     }
 
