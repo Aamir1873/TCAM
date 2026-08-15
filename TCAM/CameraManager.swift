@@ -6,6 +6,7 @@
 @preconcurrency import SwiftUI
 @preconcurrency import AVFoundation
 import CoreImage
+import ImageIO
 import Photos
 import CoreLocation
 import MapKit
@@ -443,12 +444,19 @@ private final class Coordinator: NSObject, @unchecked Sendable,
             }
             return
         }
+
+        // ProRAW pixel data is commonly stored in the sensor's native layout.
+        // Apply its EXIF orientation before rendering so the later UIKit framing
+        // step receives physically upright pixels rather than a rotated image.
+        let orientationKey = kCGImagePropertyOrientation as String
+        let exifOrientation = (photo.metadata[orientationKey] as? NSNumber)?.int32Value ?? 1
+        let orientedSource = ciSource.oriented(forExifOrientation: exifOrientation)
         
         let process = captureContext.process
         // The finished image is capped at 3840 px. Downsize the
         // ProRAW frame before creating a CGImage so a 48 MP capture does not
         // create several full-resolution UIKit bitmaps during processing.
-        guard let cg = engine.render(process, image: ciSource, maximumDimension: 3840) else {
+        guard let cg = engine.render(process, image: orientedSource, maximumDimension: 3840) else {
             Task { @MainActor [weak manager] in
                 manager?.isCapturing = false
                 manager?.captureErrorMessage = "The image processor could not render the ProRAW frame."
