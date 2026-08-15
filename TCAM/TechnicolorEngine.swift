@@ -97,10 +97,24 @@ final class TechnicolorEngine: Sendable {
         return applyUnlocked(process, to: image)
     }
 
-    func render(_ process: TechnicolorProcess, image: CIImage) -> CGImage? {
+    func render(
+        _ process: TechnicolorProcess,
+        image: CIImage,
+        maximumDimension: CGFloat? = nil
+    ) -> CGImage? {
         filterLock.lock()
         defer { filterLock.unlock() }
-        let filtered = toneMap(applyUnlocked(process, to: image))
+        var filtered = toneMap(applyUnlocked(process, to: image))
+
+        if let maximumDimension,
+           maximumDimension > 0 {
+            let largestDimension = max(filtered.extent.width, filtered.extent.height)
+            if largestDimension > maximumDimension {
+                let scale = maximumDimension / largestDimension
+                filtered = filtered.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            }
+        }
+
         return context.createCGImage(filtered, from: filtered.extent)
     }
 

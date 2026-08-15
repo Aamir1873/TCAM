@@ -341,14 +341,17 @@ final class CameraManager {
     private func fireShutter() {
         isCapturing = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        guard let rawFormat = coordinator.photoOutput.availableRawPhotoPixelFormatTypes.first(where: {
+        // ProRAW is optional. It is unavailable on the simulator and on many
+        // camera/lens combinations, so falling back to JPEG keeps capture
+        // working everywhere instead of rejecting the shutter press.
+        let settings: AVCapturePhotoSettings
+        if let rawFormat = coordinator.photoOutput.availableRawPhotoPixelFormatTypes.first(where: {
             AVCapturePhotoOutput.isAppleProRAWPixelFormat($0)
-        }) else {
-            isCapturing = false
-            captureErrorMessage = "Apple ProRAW is unavailable for the current camera configuration."
-            return
+        }), coordinator.photoOutput.isAppleProRAWSupported {
+            settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
+        } else {
+            settings = AVCapturePhotoSettings()
         }
-        let settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
         settings.photoQualityPrioritization = .quality
         let flashSupported = coordinator.photoOutput.supportedFlashModes.contains(.on)
         settings.flashMode = isFlashOn && flashSupported ? .on : .off
@@ -457,7 +460,10 @@ private final class Coordinator: NSObject, @unchecked Sendable,
         }
         
         let process = manager?.processSnapshot() ?? .cinematic
-        guard let cg = engine.render(process, image: ciSource) else {
+        // The finished, watermarked image is capped at 3840 px. Downsize the
+        // ProRAW frame before creating a CGImage so a 48 MP capture does not
+        // create several full-resolution UIKit bitmaps during crop/watermark.
+        guard let cg = engine.render(process, image: ciSource, maximumDimension: 3840) else {
             Task { @MainActor [weak manager] in
                 manager?.isCapturing = false
                 manager?.captureErrorMessage = "The image processor could not render the ProRAW frame."
