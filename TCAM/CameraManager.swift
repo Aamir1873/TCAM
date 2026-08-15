@@ -6,6 +6,7 @@
 @preconcurrency import SwiftUI
 @preconcurrency import AVFoundation
 import CoreImage
+import ImageIO
 import Photos
 import CoreLocation
 import MapKit
@@ -443,6 +444,9 @@ private final class Coordinator: NSObject, @unchecked Sendable,
             }
             return
         }
+
+        let orientationKey = kCGImagePropertyOrientation as String
+        let exifOrientation = (photo.metadata[orientationKey] as? NSNumber)?.int32Value ?? 1
         
         let process = captureContext.process
         // The finished image is capped at 3840 px. Downsize the
@@ -456,7 +460,11 @@ private final class Coordinator: NSObject, @unchecked Sendable,
             return
         }
         
-        let original = UIImage(cgImage: cg, scale: 1.0, orientation: .up)
+        let original = UIImage(
+            cgImage: cg,
+            scale: 1.0,
+            orientation: .fromEXIFOrientation(exifOrientation)
+        )
         let processingQueue = photoProcessingQueue
         let engine = engine
         let manager = manager
@@ -501,6 +509,21 @@ private final class Coordinator: NSObject, @unchecked Sendable,
 }
 
 // MARK: - Aspect Ratio Crop & Orientation (Updated)
+private extension UIImage.Orientation {
+    static func fromEXIFOrientation(_ value: Int32) -> UIImage.Orientation {
+        switch value {
+        case 2:  return .upMirrored
+        case 3:  return .down
+        case 4:  return .downMirrored
+        case 5:  return .leftMirrored
+        case 6:  return .right
+        case 7:  return .rightMirrored
+        case 8:  return .left
+        default: return .up
+        }
+    }
+}
+
 private extension UIImage {
 
     /// Fits the image inside an editorial gallery mat at the requested aspect
