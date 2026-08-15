@@ -321,6 +321,7 @@ final class CameraManager {
         isCapturing = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         let settings = AVCapturePhotoSettings()
+        settings.photoQualityPrioritization = .quality
         let flashSupported = coordinator.photoOutput.supportedFlashModes.contains(.on)
         settings.flashMode = isFlashOn && flashSupported ? .on : .off
         settings.maxPhotoDimensions = coordinator.photoOutput.maxPhotoDimensions
