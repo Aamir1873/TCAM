@@ -108,10 +108,6 @@ struct CameraView: View {
                         alignment: .top
                     )
                     .clipped()
-                    .compositingGroup()
-                    .mask {
-                        RoundedRectangle(cornerRadius: 52, style: .continuous)
-                    }
                     .frame(maxWidth: .infinity, alignment: .top)
                     .padding(.top, 82)
                     .gesture(pinchGesture)
@@ -255,10 +251,6 @@ private struct ViewfinderImage: View {
                     .tint(DS.gold)
                     .scaleEffect(1.4)
             }
-        }
-        .compositingGroup()
-        .mask {
-            RoundedRectangle(cornerRadius: 52, style: .continuous)
         }
     }
 }
