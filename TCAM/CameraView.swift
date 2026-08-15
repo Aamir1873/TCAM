@@ -108,7 +108,10 @@ struct CameraView: View {
                         alignment: .top
                     )
                     .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: 38, style: .continuous))
+                    .compositingGroup()
+                    .mask {
+                        RoundedRectangle(cornerRadius: 52, style: .continuous)
+                    }
                     .frame(maxWidth: .infinity, alignment: .top)
                     .padding(.top, 82)
                     .gesture(pinchGesture)
@@ -136,7 +139,7 @@ struct CameraView: View {
                 )
                 .offset(y: controlsVisible ? 0 : 60)
                 .opacity(controlsVisible ? 1 : 0)
-                .padding(.bottom, DS.controlBottomPad)
+                .padding(.bottom, DS.controlBottomPad + 42)
             }
 
             if let error = camera.captureErrorMessage {
@@ -235,35 +238,28 @@ struct CameraView: View {
 // MARK: - Viewfinder
 private struct ViewfinderImage: View {
     let frame: CGImage?
-    let aspectRatio: CameraManager.AspectRatio  // ✅ Now uses enum
+    let aspectRatio: CameraManager.AspectRatio
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                Color.black
+        ZStack {
+            Color.black
 
-                if let frame {
-                    Image(uiImage: UIImage(cgImage: frame))
-                        .resizable()
-                        .scaledToFill()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .clipped()
-                } else {
-                    ProgressView()
-                        .tint(DS.gold)
-                        .scaleEffect(1.4)
-                }
+            if let frame {
+                Image(uiImage: UIImage(cgImage: frame))
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+            } else {
+                ProgressView()
+                    .tint(DS.gold)
+                    .scaleEffect(1.4)
             }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-            .clipShape(RoundedRectangle(cornerRadius: 38, style: .continuous))
         }
-    }
-
-    // ✅ UPDATED: Calculate display aspect ratio using orientedRatio
-    private var displayAspectRatio: CGFloat {
-        // Use portrait as default for preview calculation
-        // The actual crop ratio is handled by CameraManager with device orientation
-        return aspectRatio.ratio
+        .compositingGroup()
+        .mask {
+            RoundedRectangle(cornerRadius: 52, style: .continuous)
+        }
     }
 }
 
@@ -488,6 +484,8 @@ private struct FilterRow: View {
                     }
                     .scaleEffect(isSelected ? 1.06 : 1.0)
                     .animation(.easeOut(duration: 0.15), value: isSelected)
+                    .frame(width: 0, height: 0)
+                    .opacity(0)
                     Text(filter.rawValue)
                         .font(DS.monoSm)
                         .foregroundStyle(.white)
@@ -495,7 +493,7 @@ private struct FilterRow: View {
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(glassTint(for: filter), in: Capsule())
+                    .glassCard(shape: .pill)
                 }
                 .buttonStyle(ScaleButtonStyle(scale: 0.94))
                 .accessibilityLabel(filter.rawValue)
