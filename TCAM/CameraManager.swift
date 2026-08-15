@@ -290,9 +290,6 @@ final class CameraManager {
         let coordinatorRef = coordinator
         let captureContext = Coordinator.CaptureContext(
             process: currentProcess,
-            zoomFactor: displayLogicalZoomFactor,
-            aspectRatio: captureAspectRatio.ratio,
-            locationString: lastLocationString,
             shouldSaveToPhotoLibrary: photoPermissionGranted
         )
 
@@ -361,19 +358,8 @@ private final class Coordinator: NSObject, @unchecked Sendable,
     private let captureContextLock = NSLock()
     private var activeCaptureContext: CaptureContext?
 
-    private final class ImmutablePhotoMetadata: @unchecked Sendable {
-        let value: [String: Any]
-
-        init(_ value: [String: Any]) {
-            self.value = value
-        }
-    }
-
     struct CaptureContext: @unchecked Sendable {
         let process: TechnicolorProcess
-        let zoomFactor: CGFloat
-        let aspectRatio: CGFloat
-        let locationString: String?
         let shouldSaveToPhotoLibrary: Bool
     }
     
@@ -434,9 +420,6 @@ private final class Coordinator: NSObject, @unchecked Sendable,
     ) {
         let captureContext = takeCaptureContext() ?? CaptureContext(
             process: .cinematic,
-            zoomFactor: 1.0,
-            aspectRatio: 4.0 / 3.0,
-            locationString: nil,
             shouldSaveToPhotoLibrary: false
         )
         guard error == nil else {
@@ -462,9 +445,9 @@ private final class Coordinator: NSObject, @unchecked Sendable,
         }
         
         let process = captureContext.process
-        // The finished, watermarked image is capped at 3840 px. Downsize the
+        // The finished image is capped at 3840 px. Downsize the
         // ProRAW frame before creating a CGImage so a 48 MP capture does not
-        // create several full-resolution UIKit bitmaps during crop/watermark.
+        // create several full-resolution UIKit bitmaps during processing.
         guard let cg = engine.render(process, image: ciSource, maximumDimension: 3840) else {
             Task { @MainActor [weak manager] in
                 manager?.isCapturing = false
@@ -473,32 +456,17 @@ private final class Coordinator: NSObject, @unchecked Sendable,
             return
         }
         
-        // ✅ Preserve EXIF orientation metadata
-        let orientationValue = (photo.metadata[kCGImagePropertyOrientation as String] as? NSNumber)?.uint32Value
-            ?? (photo.metadata[kCGImagePropertyOrientation as String] as? UInt32)
-            ?? 1
-        let uiOrientation = UIImage.Orientation.fromCG(orientationValue)
-        let photoMetadata = ImmutablePhotoMetadata(photo.metadata)
-        let original = UIImage(cgImage: cg, scale: 1.0, orientation: uiOrientation)
+        let original = UIImage(cgImage: cg, scale: 1.0, orientation: .up)
         let processingQueue = photoProcessingQueue
         let engine = engine
         let manager = manager
         
         processingQueue.async {
-            // Crop, watermark, JPEG encoding, and file I/O are intentionally
+            // Crop, JPEG encoding, and file I/O are intentionally
             // off the main actor. A ProRAW shot can otherwise hold the UI for
             // several seconds even after its CI render has been downscaled.
-            let cropped = original.croppedToAspectRatio(captureContext.aspectRatio)
-            let instagramCrop = cropped.croppedToAspectRatio(4.0 / 5.0)
-            let final = PhotoWatermarker.apply(
-                to: instagramCrop,
-                metadata: photoMetadata.value,
-                zoomFactor: captureContext.zoomFactor,
-                process: process,
-                location: nil,
-                locationString: captureContext.locationString,
-                isEnabled: true
-            )
+            // Instagram portrait posts use a 4:5 image canvas.
+            let final = original.croppedToAspectRatio(4.0 / 5.0)
 
             Task { @MainActor [weak manager] in
                 manager?.isCapturing = false
@@ -527,23 +495,6 @@ private final class Coordinator: NSObject, @unchecked Sendable,
                     manager?.showSavedBanner = false
                 }
             }
-        }
-    }
-}
-
-// MARK: - UIImage.Orientation helper
-extension UIImage.Orientation {
-    static nonisolated func fromCG(_ cgOrientation: UInt32) -> UIImage.Orientation {
-        switch cgOrientation {
-        case 1: .up
-        case 2: .upMirrored
-        case 3: .down
-        case 4: .downMirrored
-        case 5: .leftMirrored
-        case 6: .right
-        case 7: .rightMirrored
-        case 8: .left
-        default: .up
         }
     }
 }

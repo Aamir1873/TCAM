@@ -9,6 +9,9 @@ import CoreLocation
 
 final class PhotoWatermarker {
     private static let maxRenderWidth: CGFloat = 3840
+    // The image crop reserves this space so the complete image + watermark
+    // canvas remains exactly 4:5 for Instagram portrait posts.
+    static let footerHeightRatio: CGFloat = 0.150
 
     // MARK: - Filter colour palette (matches CameraView swatch colours)
     static func filterColor(for process: TechnicolorProcess) -> UIColor {
@@ -101,7 +104,7 @@ final class PhotoWatermarker {
         let renderH   = image.size.height * scale
 
         // Taller footer — 16% of width gives generous room for 3 rows + right column
-        let footerH: CGFloat = renderW * 0.160
+        let footerH: CGFloat = renderW * footerHeightRatio
         let totalH            = renderH + footerH
 
         let format        = UIGraphicsImageRendererFormat()
@@ -118,21 +121,37 @@ final class PhotoWatermarker {
             image.draw(in: CGRect(x: 0, y: 0, width: renderW, height: renderH))
 
             // ── Footer background ─────────────────────────────────────────
-            UIColor(white: 0.04, alpha: 1.0).setFill()
-            ctx.fill(CGRect(x: 0, y: renderH, width: renderW, height: footerH))
+            let footerRect = CGRect(x: 0, y: renderH, width: renderW, height: footerH)
+            let footerGradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: [
+                    UIColor(red: 0.018, green: 0.020, blue: 0.025, alpha: 1).cgColor,
+                    UIColor(red: 0.055, green: 0.060, blue: 0.070, alpha: 1).cgColor
+                ] as CFArray,
+                locations: [0, 1]
+            )!
+            cgCtx.saveGState()
+            cgCtx.clip(to: footerRect)
+            cgCtx.drawLinearGradient(
+                footerGradient,
+                start: CGPoint(x: 0, y: renderH),
+                end: CGPoint(x: renderW, y: totalH),
+                options: []
+            )
+            cgCtx.restoreGState()
 
             // Top hairline
-            UIColor(white: 1.0, alpha: 0.12).setFill()
-            ctx.fill(CGRect(x: 0, y: renderH, width: renderW, height: max(2, renderW / 1500)))
+            UIColor.white.withAlphaComponent(0.55).setFill()
+            ctx.fill(CGRect(x: 0, y: renderH, width: renderW, height: max(2, renderW / 1800)))
 
             // ── Type scale ────────────────────────────────────────────────
-            let specsSize  = renderW * 0.0270   // main specs — largest
-            let subSize    = renderW * 0.0155   // device + location row
-            let filterSize = renderW * 0.0145   // filter name on right
-            let brandSize  = renderW * 0.0190   // TCAM wordmark
+            let specsSize  = renderW * 0.0230   // main specs — largest
+            let subSize    = renderW * 0.0125   // device + location row
+            let filterSize = renderW * 0.0120   // filter name on right
+            let brandSize  = renderW * 0.0170   // TCAM wordmark
 
-            let hPad       = renderW * 0.036
-            let vPad       = footerH * 0.18     // top margin inside footer
+            let hPad       = renderW * 0.045
+            let vPad       = footerH * 0.20     // top margin inside footer
 
             // ── LEFT COLUMN ───────────────────────────────────────────────
 
@@ -141,8 +160,8 @@ final class PhotoWatermarker {
                           ?? UIFont.systemFont(ofSize: specsSize, weight: .light)
             let specsAttrs: [NSAttributedString.Key: Any] = [
                 .font:            specsFont,
-                .foregroundColor: UIColor(white: 1.0, alpha: 0.92),
-                .kern:            specsSize * 0.10
+                .foregroundColor: UIColor(white: 1.0, alpha: 0.88),
+                .kern:            specsSize * 0.06
             ]
             let specsSz = (specs as NSString).size(withAttributes: specsAttrs)
             let specsY  = renderH + vPad
@@ -162,8 +181,8 @@ final class PhotoWatermarker {
 
             let subAttrs: [NSAttributedString.Key: Any] = [
                 .font:            subFont,
-                .foregroundColor: UIColor(white: 1.0, alpha: 0.48),
-                .kern:            subSize * 0.22
+                .foregroundColor: UIColor(white: 1.0, alpha: 0.42),
+                .kern:            subSize * 0.16
             ]
             let subSz   = (subLine as NSString).size(withAttributes: subAttrs)
             let subY    = specsY + specsSz.height + specsSize * 0.35
@@ -183,8 +202,8 @@ final class PhotoWatermarker {
                           ?? UIFont.systemFont(ofSize: brandSize, weight: .thin)
             let brandAttrs: [NSAttributedString.Key: Any] = [
                 .font:            brandFont,
-                .foregroundColor: UIColor(white: 1.0, alpha: 0.65),
-                .kern:            brandSize * 0.55
+                .foregroundColor: UIColor(white: 1.0, alpha: 0.70),
+                .kern:            brandSize * 0.42
             ]
             let brandStr  = "TCAM" as NSString
             let brandSz   = brandStr.size(withAttributes: brandAttrs)
@@ -192,12 +211,11 @@ final class PhotoWatermarker {
             // Filter name (coloured, below TCAM)
             let filterFont  = UIFont(name: "HelveticaNeue-Light", size: filterSize)
                            ?? UIFont.systemFont(ofSize: filterSize, weight: .light)
-            let filterColor  = PhotoWatermarker.filterColor(for: process)
             let filterName   = PhotoWatermarker.filterDisplayName(for: process)
             let filterAttrs: [NSAttributedString.Key: Any] = [
                 .font:            filterFont,
-                .foregroundColor: filterColor,
-                .kern:            filterSize * 0.40
+                .foregroundColor: UIColor.white.withAlphaComponent(0.78),
+                .kern:            filterSize * 0.28
             ]
             let filterStr  = filterName as NSString
             let filterSz   = filterStr.size(withAttributes: filterAttrs)
@@ -224,8 +242,8 @@ final class PhotoWatermarker {
             let ruleX      = renderW * 0.76
             let ruleTop    = renderH + footerH * 0.20
             let ruleBot    = renderH + footerH * 0.80
-            cgCtx.setStrokeColor(UIColor(white: 1.0, alpha: 0.10).cgColor)
-            cgCtx.setLineWidth(max(1, renderW / 2000))
+            cgCtx.setStrokeColor(UIColor(white: 1.0, alpha: 0.12).cgColor)
+            cgCtx.setLineWidth(max(1, renderW / 2200))
             cgCtx.move(to: CGPoint(x: ruleX, y: ruleTop))
             cgCtx.addLine(to: CGPoint(x: ruleX, y: ruleBot))
             cgCtx.strokePath()
