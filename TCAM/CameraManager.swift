@@ -8,6 +8,7 @@ import SwiftUI
 import CoreImage
 import Photos
 import CoreLocation
+import MapKit
 import UIKit
 
 @Observable
@@ -58,7 +59,7 @@ final class CameraManager {
 
     @ObservationIgnored nonisolated(unsafe) var logicalZoomFactor: CGFloat = 1.0
     @ObservationIgnored nonisolated(unsafe) var currentProcessCache: TechnicolorProcess = .cinematic
-    @ObservationIgnored nonisolated(unsafe) private let stateLock = NSLock()
+    @ObservationIgnored nonisolated private let stateLock = NSLock()
     // ✅ watermarkEnabled removed - no longer needed
 
     let cameraPosition: AVCaptureDevice.Position = .back
@@ -84,8 +85,10 @@ final class CameraManager {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.updateDeviceOrientation()
-            self?.updateVideoRotationForOrientation()
+            Task { @MainActor [weak self] in
+                self?.updateDeviceOrientation()
+                self?.updateVideoRotationForOrientation()
+            }
         }
         
         // Initialize orientation
@@ -97,7 +100,8 @@ final class CameraManager {
         if let observer = orientationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
-        sessionQueue.async { [weak self] in self?.session.stopRunning() }
+        let sessionRef = session
+        sessionQueue.async { sessionRef.stopRunning() }
     }
 
     // MARK: - Permissions
@@ -145,7 +149,7 @@ final class CameraManager {
             sessionRef.inputs.forEach  { sessionRef.removeInput($0) }
             sessionRef.outputs.forEach { sessionRef.removeOutput($0) }
 
-            if self.addInput(session: sessionRef, position: position, preferredLens: lens) {
+            if CameraManager.addInput(session: sessionRef, position: position, preferredLens: lens) {
                 coordinatorRef.videoOutput.setSampleBufferDelegate(coordinatorRef, queue: filterQueueRef)
                 coordinatorRef.videoOutput.alwaysDiscardsLateVideoFrames = true
 
@@ -156,7 +160,7 @@ final class CameraManager {
                     sessionRef.addOutput(coordinatorRef.photoOutput)
                     coordinatorRef.photoOutput.maxPhotoQualityPrioritization = .quality
                     if coordinatorRef.photoOutput.isAppleProRAWSupported {
-                        coordinatorRef.photoOutput.appleProRAWEnabled = true
+                        coordinatorRef.photoOutput.isAppleProRAWEnabled = true
                     }
                 }
                 coordinatorRef.updateVideoConnection(rotationAngle: previewRotationAngle, isMirrored: isFront)
@@ -167,14 +171,17 @@ final class CameraManager {
 
             // KVO — observe ISO; read both ISO + shutter together so they stay in sync
             if let device = (sessionRef.inputs.first as? AVCaptureDeviceInput)?.device {
-                self.exposureObserver?.invalidate()
-                self.exposureObserver = device.observe(\.iso, options: [.new]) { [weak self] dev, _ in
+                let observer = device.observe(\.iso, options: [.new]) { [weak self] dev, _ in
                     let iso     = dev.iso
                     let shutter = dev.exposureDuration.seconds
                     Task { @MainActor [weak self] in
                         self?.currentISO          = iso
                         self?.currentShutterSpeed = shutter
                     }
+                }
+                Task { @MainActor [weak self] in
+                    self?.exposureObserver?.invalidate()
+                    self?.exposureObserver = observer
                 }
             }
         }
@@ -197,7 +204,7 @@ final class CameraManager {
     // MARK: - Lens / Zoom
 
     @discardableResult
-    nonisolated private func addInput(
+    nonisolated private static func addInput(
         session: AVCaptureSession,
         position: AVCaptureDevice.Position,
         preferredLens: AVCaptureDevice.DeviceType
@@ -238,7 +245,7 @@ final class CameraManager {
             if let currentInput = sessionRef.inputs.first as? AVCaptureDeviceInput,
                currentInput.device.deviceType != type {
                 sessionRef.removeInput(currentInput)
-                self.addInput(session: sessionRef, position: position, preferredLens: type)
+                CameraManager.addInput(session: sessionRef, position: position, preferredLens: type)
             }
             coordinatorRef.updateVideoConnection(rotationAngle: previewRotationAngle, isMirrored: isFront)
             if let device = (sessionRef.inputs.first as? AVCaptureDeviceInput)?.device {
@@ -273,11 +280,12 @@ final class CameraManager {
     private func updateVideoRotationForOrientation() {
         let previewRotationAngle = getRotationAngleForOrientation(deviceOrientation)
 
-        sessionQueue.async { [weak self] in
-            guard let self else { return }
-            self.coordinator.updateVideoConnection(
+        let coordinatorRef = coordinator
+        let isFront = cameraPosition == .front
+        sessionQueue.async {
+            coordinatorRef.updateVideoConnection(
                 rotationAngle: previewRotationAngle,
-                isMirrored: self.cameraPosition == .front
+                isMirrored: isFront
             )
         }
     }
@@ -366,7 +374,7 @@ final class CameraManager {
 }
 
 // MARK: - Coordinator
-private final class Coordinator: NSObject,
+private final class Coordinator: NSObject, @unchecked Sendable,
     AVCaptureVideoDataOutputSampleBufferDelegate,
     AVCapturePhotoCaptureDelegate
 {
@@ -467,7 +475,7 @@ private final class Coordinator: NSObject,
             }
             PHPhotoLibrary.shared().performChanges({
                 let req = PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: exportURL)
-                req.creationDate = Date()
+                req?.creationDate = Date()
             }) { ok, _ in
                 try? FileManager.default.removeItem(at: exportURL)
                 guard ok else { return }
@@ -504,7 +512,7 @@ private extension UIImage {
     /// Crops image to target aspect ratio with correct orientation handling.
     /// Normalizes orientation FIRST, then crops, ensuring output is always .up
     func croppedToAspectRatio(_ targetRatio: CGFloat) -> UIImage {
-        guard targetRatio > 0, let cgImage = self.cgImage else { return self }
+        guard targetRatio > 0, self.cgImage != nil else { return self }
         
         // Step 1: Normalize orientation — apply EXIF rotation to pixel data
         let normalized = self.normalizedForProcessing()
@@ -583,7 +591,7 @@ private extension UIDeviceOrientation {
 }
 
 // MARK: - Location Delegate
-final class LocationDelegate: NSObject, CLLocationManagerDelegate {
+final class LocationDelegate: NSObject, @unchecked Sendable, CLLocationManagerDelegate {
     weak var manager: CameraManager?
     private var lastResolvedCoordinate: CLLocationCoordinate2D?
 
@@ -602,30 +610,18 @@ final class LocationDelegate: NSObject, CLLocationManagerDelegate {
     }
 
     private func resolveLocation(_ location: CLLocation) {
-        CLGeocoder().reverseGeocodeLocation(location) { [weak self] placemarks, _ in
-            guard let self, let place = placemarks?.first else { return }
+        Task { @MainActor [weak self] in
+            guard let self, let request = MKReverseGeocodingRequest(location: location) else { return }
+            request.getMapItems { [weak self] mapItems, _ in
+                guard let self, let mapItem = mapItems?.first else { return }
 
-            let placeName = place.areasOfInterest?.first
-                         ?? place.subLocality
-                         ?? place.locality
-                         ?? place.administrativeArea
-
-            guard let placeName else { return }
-
-            var parts: [String] = [placeName]
-            if let country = place.country, !self.isSmallCountry(place) {
-                parts.append(country)
+                let placeName = mapItem.addressRepresentations?.cityWithContext(.full)
+                    ?? mapItem.address?.shortAddress
+                    ?? mapItem.address?.fullAddress
+                guard let placeName else { return }
+                self.manager?.lastLocationString = placeName
             }
-
-            let result = parts.joined(separator: ", ")
-            Task { @MainActor [weak self] in self?.manager?.lastLocationString = result }
         }
-    }
-
-    private func isSmallCountry(_ place: CLPlacemark) -> Bool {
-        let smallCountryCodes = ["QA", "AE", "BH", "KW", "SG", "MC", "LU", "MT", "MV"]
-        guard let code = place.isoCountryCode else { return false }
-        return smallCountryCodes.contains(code)
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
