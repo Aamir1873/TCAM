@@ -192,7 +192,7 @@ final class CameraManager {
     func handleScenePhase(_ phase: ScenePhase) {
         guard permissionState == .granted else { return }
         let sessionRef = self.session
-        sessionQueue.async { [weak self] in
+        sessionQueue.async {
             switch phase {
             case .active:     if !sessionRef.isRunning { sessionRef.startRunning() }
             case .background: if  sessionRef.isRunning { sessionRef.stopRunning()  }
@@ -612,7 +612,13 @@ final class LocationDelegate: NSObject, @unchecked Sendable, CLLocationManagerDe
     private func resolveLocation(_ location: CLLocation) {
         Task { @MainActor [weak self] in
             guard let self, let request = MKReverseGeocodingRequest(location: location) else { return }
-            guard let mapItem = try? await request.mapItems().first else { return }
+            let mapItems: [MKMapItem]
+            do {
+                mapItems = try await request.mapItems()
+            } catch {
+                return
+            }
+            guard let mapItem = mapItems.first else { return }
 
             let placeName = mapItem.addressRepresentations?.cityWithContext(.full)
                 ?? mapItem.address?.shortAddress
