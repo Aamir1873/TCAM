@@ -155,6 +155,9 @@ final class CameraManager {
                 if sessionRef.canAddOutput(coordinatorRef.photoOutput) {
                     sessionRef.addOutput(coordinatorRef.photoOutput)
                     coordinatorRef.photoOutput.maxPhotoQualityPrioritization = .quality
+                    if coordinatorRef.photoOutput.isAppleProRAWSupported {
+                        coordinatorRef.photoOutput.appleProRAWEnabled = true
+                    }
                 }
                 coordinatorRef.updateVideoConnection(rotationAngle: previewRotationAngle, isMirrored: isFront)
             }
@@ -320,12 +323,13 @@ final class CameraManager {
     private func fireShutter() {
         isCapturing = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        let settings: AVCapturePhotoSettings
-        if let rawFormat = coordinator.photoOutput.availableRawPhotoPixelFormatTypes.first {
-            settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
-        } else {
-            settings = AVCapturePhotoSettings()
+        guard let rawFormat = coordinator.photoOutput.availableRawPhotoPixelFormatTypes.first(where: {
+            AVCapturePhotoOutput.isAppleProRAWPixelFormat($0)
+        }) else {
+            isCapturing = false
+            return
         }
+        let settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
         settings.photoQualityPrioritization = .quality
         let flashSupported = coordinator.photoOutput.supportedFlashModes.contains(.on)
         settings.flashMode = isFlashOn && flashSupported ? .on : .off
