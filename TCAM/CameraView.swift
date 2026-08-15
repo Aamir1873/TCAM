@@ -368,8 +368,7 @@ private struct ExposureRow: View {
             }
             .font(DS.monoMd)
             .foregroundStyle(DS.textPrimary)
-            .frame(height: 34)
-            .padding(.horizontal, 14)
+            .frame(width: 132, height: 34)
             .glassCard(shape: .pill)
         }
         .buttonStyle(ScaleButtonStyle(scale: 0.94))
@@ -483,8 +482,7 @@ private struct FilterRow: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .frame(width: 132, height: 34)
                     .glassCard(shape: .pill)
                 }
                 .buttonStyle(ScaleButtonStyle(scale: 0.94))
