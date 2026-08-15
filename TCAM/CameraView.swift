@@ -325,6 +325,7 @@ private struct ControlPanel: View {
                 FilterRow(filters: filters, camera: camera)
             }
             .padding(.horizontal, 4)
+            .offset(y: 8)
 
             // ── Divider ─────────────────────────────────────────────────
             Rectangle()
