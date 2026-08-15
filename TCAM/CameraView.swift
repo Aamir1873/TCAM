@@ -100,18 +100,17 @@ struct CameraView: View {
             GeometryReader { proxy in
                 ViewfinderImage(frame: camera.filteredFrame, aspectRatio: .standard)
                     .frame(
-                        width: max(0, proxy.size.width - 24),
-                        height: max(0, proxy.size.height - 300),
+                        width: proxy.size.width,
+                        height: min(
+                            max(0, proxy.size.height - 250),
+                            proxy.size.width * (4.0 / 3.0)
+                        ),
                         alignment: .top
                     )
                     .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 30, style: .continuous)
-                            .stroke(Color.white.opacity(0.16), lineWidth: 1)
-                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 38, style: .continuous))
                     .frame(maxWidth: .infinity, alignment: .top)
-                    .offset(y: 6)
+                    .padding(.top, 82)
                     .gesture(pinchGesture)
             }
             .ignoresSafeArea()
@@ -255,10 +254,9 @@ private struct ViewfinderImage: View {
                         .scaleEffect(1.4)
                 }
             }
-            .aspectRatio(displayAspectRatio, contentMode: .fit)
             .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipShape(RoundedRectangle(cornerRadius: 38, style: .continuous))
         }
-        .ignoresSafeArea()
     }
 
     // ✅ UPDATED: Calculate display aspect ratio using orientedRatio
@@ -384,7 +382,7 @@ private struct ExposureRow: View {
             .foregroundStyle(DS.textPrimary)
             .frame(height: 34)
             .padding(.horizontal, 14)
-            .background(Color.white.opacity(0.10), in: Capsule())
+            .glassCard(shape: .pill)
         }
         .buttonStyle(ScaleButtonStyle(scale: 0.94))
     }
@@ -416,7 +414,7 @@ private struct FilterRow: View {
                     ZStack {
                         // Base glass circle with frosted blur effect
                         Circle()
-                            .fill(Color.white.opacity(0.08))
+                            .fill(Color.black.opacity(0.22))
                             .overlay(
                                 Circle()
                                     .stroke(
@@ -490,15 +488,14 @@ private struct FilterRow: View {
                     }
                     .scaleEffect(isSelected ? 1.06 : 1.0)
                     .animation(.easeOut(duration: 0.15), value: isSelected)
-                    .glassEffect()  // ✅ Apple-style frosted blur
                     Text(filter.rawValue)
                         .font(DS.monoSm)
-                        .foregroundStyle(DS.textPrimary)
+                        .foregroundStyle(.white)
                         .lineLimit(1)
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(Color.white.opacity(0.08), in: Capsule())
+                    .background(glassTint(for: filter), in: Capsule())
                 }
                 .buttonStyle(ScaleButtonStyle(scale: 0.94))
                 .accessibilityLabel(filter.rawValue)
