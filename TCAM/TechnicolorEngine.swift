@@ -104,17 +104,18 @@ final class TechnicolorEngine: Sendable {
     ) -> CGImage? {
         filterLock.lock()
         defer { filterLock.unlock() }
-        var filtered = toneMap(applyUnlocked(process, to: image))
+        var source = image
 
         if let maximumDimension,
            maximumDimension > 0 {
-            let largestDimension = max(filtered.extent.width, filtered.extent.height)
+            let largestDimension = max(source.extent.width, source.extent.height)
             if largestDimension > maximumDimension {
                 let scale = maximumDimension / largestDimension
-                filtered = filtered.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+                source = source.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
             }
         }
 
+        let filtered = toneMap(applyUnlocked(process, to: source))
         return context.createCGImage(filtered, from: filtered.extent)
     }
 

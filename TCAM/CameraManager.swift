@@ -26,10 +26,6 @@ final class CameraManager {
             }
         }
         
-        /// Returns the explicitly selected output ratio.
-        func orientedRatio(for orientation: UIDeviceOrientation) -> CGFloat {
-            ratio
-        }
     }
     
     var activeLensType: AVCaptureDevice.DeviceType = .builtInWideAngleCamera
@@ -50,9 +46,8 @@ final class CameraManager {
     var lastLocation: CLLocation?
     var lastLocationString: String?
     
-    // ✅ Updated: Type-safe aspect ratio + orientation tracking
+    // Portrait-only capture keeps the viewfinder and final photo aligned.
     var captureAspectRatio: AspectRatio = .standard
-    var deviceOrientation: UIDeviceOrientation = .portrait
     
     var displayLogicalZoomFactor: CGFloat = 1.0
 
@@ -72,33 +67,14 @@ final class CameraManager {
 
     @ObservationIgnored private lazy var locationDelegate = LocationDelegate(manager: self)
     @ObservationIgnored private var exposureObserver: NSKeyValueObservation?
-    @ObservationIgnored nonisolated(unsafe) private var orientationObserver: NSObjectProtocol?
 
     init() {
         self.coordinator = Coordinator(engine: engine)
         self.coordinator.manager = self
-        
-        // Observe device orientation changes
-        orientationObserver = NotificationCenter.default.addObserver(
-            forName: UIDevice.orientationDidChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.updateDeviceOrientation()
-                self?.updateVideoRotationForOrientation()
-            }
-        }
-        
-        // Initialize orientation
-        updateDeviceOrientation()
     }
 
     deinit {
         exposureObserver?.invalidate()
-        if let observer = orientationObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
         let sessionRef = session
         sessionQueue.async { sessionRef.stopRunning() }
     }
@@ -140,7 +116,7 @@ final class CameraManager {
         let coordinatorRef = self.coordinator
         let filterQueueRef = self.filterQueue
         
-        let previewRotationAngle = getRotationAngleForOrientation(deviceOrientation)
+        let previewRotationAngle = portraitRotationAngle
 
         sessionQueue.async { [weak self] in
             sessionRef.beginConfiguration()
@@ -243,7 +219,7 @@ final class CameraManager {
         let sessionRef     = self.session
         let coordinatorRef = self.coordinator
         
-        let previewRotationAngle = getRotationAngleForOrientation(deviceOrientation)
+        let previewRotationAngle = portraitRotationAngle
 
         sessionQueue.async {
             // Reconfigure only while the session is stopped. Removing or replacing
@@ -271,42 +247,7 @@ final class CameraManager {
 
     // MARK: - Orientation
 
-    private func getRotationAngleForOrientation(_ orientation: UIDeviceOrientation) -> CGFloat {
-        switch orientation {
-        case .portrait:
-            return 90
-        case .portraitUpsideDown:
-            return -90
-        case .landscapeLeft:
-            return 0
-        case .landscapeRight:
-            return 180
-        default:
-            return 90
-        }
-    }
-
-    private func updateVideoRotationForOrientation() {
-        let previewRotationAngle = getRotationAngleForOrientation(deviceOrientation)
-
-        let coordinatorRef = coordinator
-        let isFront = cameraPosition == .front
-        sessionQueue.async {
-            coordinatorRef.updateVideoConnection(
-                rotationAngle: previewRotationAngle,
-                isMirrored: isFront
-            )
-        }
-    }
-    
-    // ✅ New: Track device orientation for aspect ratio calculations
-    private func updateDeviceOrientation() {
-        let orientation = UIDevice.current.orientation
-        if orientation.isValidInterfaceOrientation {
-            deviceOrientation = orientation
-        }
-        // else: keep last valid orientation
-    }
+    private let portraitRotationAngle: CGFloat = 90
     
     // ✅ Public API to change aspect ratio
     func setAspectRatio(_ ratio: AspectRatio) {
@@ -342,11 +283,18 @@ final class CameraManager {
     private func fireShutter() {
         isCapturing = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        let rotationAngle = getRotationAngleForOrientation(UIDevice.current.orientation)
+        let rotationAngle = portraitRotationAngle
         let isFront = cameraPosition == .front
         let wantsFlash = isFlashOn
         let sessionRef = session
         let coordinatorRef = coordinator
+        let captureContext = Coordinator.CaptureContext(
+            process: currentProcess,
+            zoomFactor: displayLogicalZoomFactor,
+            aspectRatio: captureAspectRatio.ratio,
+            locationString: lastLocationString,
+            shouldSaveToPhotoLibrary: photoPermissionGranted
+        )
 
         sessionQueue.async {
             guard sessionRef.isRunning,
@@ -375,6 +323,7 @@ final class CameraManager {
             settings.maxPhotoDimensions = coordinatorRef.photoOutput.maxPhotoDimensions
 
             coordinatorRef.updatePhotoConnection(rotationAngle: rotationAngle, isMirrored: isFront)
+            coordinatorRef.beginCapture(with: captureContext)
             coordinatorRef.photoOutput.capturePhoto(with: settings, delegate: coordinatorRef)
         }
     }
@@ -408,8 +357,40 @@ private final class Coordinator: NSObject, @unchecked Sendable,
     let photoOutput = AVCapturePhotoOutput()
     nonisolated(unsafe) var engine: TechnicolorEngine
     weak var manager: CameraManager?
+    private let photoProcessingQueue = DispatchQueue(label: "tc.photo-processing", qos: .userInitiated)
+    private let captureContextLock = NSLock()
+    private var activeCaptureContext: CaptureContext?
+
+    private final class ImmutablePhotoMetadata: @unchecked Sendable {
+        let value: [String: Any]
+
+        init(_ value: [String: Any]) {
+            self.value = value
+        }
+    }
+
+    struct CaptureContext: @unchecked Sendable {
+        let process: TechnicolorProcess
+        let zoomFactor: CGFloat
+        let aspectRatio: CGFloat
+        let locationString: String?
+        let shouldSaveToPhotoLibrary: Bool
+    }
     
     init(engine: TechnicolorEngine) { self.engine = engine }
+
+    func beginCapture(with context: CaptureContext) {
+        captureContextLock.lock()
+        activeCaptureContext = context
+        captureContextLock.unlock()
+    }
+
+    private func takeCaptureContext() -> CaptureContext? {
+        captureContextLock.lock()
+        defer { captureContextLock.unlock() }
+        defer { activeCaptureContext = nil }
+        return activeCaptureContext
+    }
     
     nonisolated func updateVideoConnection(rotationAngle: CGFloat, isMirrored: Bool) {
         update(connection: videoOutput.connection(with: .video), rotationAngle: rotationAngle, isMirrored: isMirrored)
@@ -451,6 +432,13 @@ private final class Coordinator: NSObject, @unchecked Sendable,
         didFinishProcessingPhoto photo: AVCapturePhoto,
         error: Error?
     ) {
+        let captureContext = takeCaptureContext() ?? CaptureContext(
+            process: .cinematic,
+            zoomFactor: 1.0,
+            aspectRatio: 4.0 / 3.0,
+            locationString: nil,
+            shouldSaveToPhotoLibrary: false
+        )
         guard error == nil else {
             Task { @MainActor [weak manager] in
                 manager?.isCapturing = false
@@ -473,7 +461,7 @@ private final class Coordinator: NSObject, @unchecked Sendable,
             return
         }
         
-        let process = manager?.processSnapshot() ?? .cinematic
+        let process = captureContext.process
         // The finished, watermarked image is capped at 3840 px. Downsize the
         // ProRAW frame before creating a CGImage so a 48 MP capture does not
         // create several full-resolution UIKit bitmaps during crop/watermark.
@@ -486,36 +474,38 @@ private final class Coordinator: NSObject, @unchecked Sendable,
         }
         
         // ✅ Preserve EXIF orientation metadata
-        let orientationValue = photo.metadata[kCGImagePropertyOrientation as String] as? UInt32 ?? 1
+        let orientationValue = (photo.metadata[kCGImagePropertyOrientation as String] as? NSNumber)?.uint32Value
+            ?? (photo.metadata[kCGImagePropertyOrientation as String] as? UInt32)
+            ?? 1
         let uiOrientation = UIImage.Orientation.fromCG(orientationValue)
-        let photoMetadata = photo.metadata
+        let photoMetadata = ImmutablePhotoMetadata(photo.metadata)
         let original = UIImage(cgImage: cg, scale: 1.0, orientation: uiOrientation)
+        let processingQueue = photoProcessingQueue
+        let engine = engine
+        let manager = manager
         
-        Task { @MainActor [weak manager] in
-            guard let manager else { return }
-            
-            // ✅ Get orientation-aware aspect ratio
-            let orientedRatio = manager.captureAspectRatio.orientedRatio(
-                for: manager.deviceOrientation
-            )
-            
-            // ✅ Crop with proper orientation handling (normalize → crop → .up orientation)
-            let cropped = original.croppedToAspectRatio(orientedRatio)
+        processingQueue.async {
+            // Crop, watermark, JPEG encoding, and file I/O are intentionally
+            // off the main actor. A ProRAW shot can otherwise hold the UI for
+            // several seconds even after its CI render has been downscaled.
+            let cropped = original.croppedToAspectRatio(captureContext.aspectRatio)
             let instagramCrop = cropped.croppedToAspectRatio(4.0 / 5.0)
             let final = PhotoWatermarker.apply(
                 to: instagramCrop,
-                metadata: photoMetadata,
-                zoomFactor: manager.zoomSnapshot(),
+                metadata: photoMetadata.value,
+                zoomFactor: captureContext.zoomFactor,
                 process: process,
-                location: manager.lastLocation,
-                locationString: manager.lastLocationString,
+                location: nil,
+                locationString: captureContext.locationString,
                 isEnabled: true
             )
-            
-            manager.isCapturing = false
-            manager.capturedImage = final
-            
-            guard manager.photoPermissionGranted,
+
+            Task { @MainActor [weak manager] in
+                manager?.isCapturing = false
+                manager?.capturedImage = final
+            }
+
+            guard captureContext.shouldSaveToPhotoLibrary,
                   let jpegData = engine.jpegData(from: final) else { return }
             let exportURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString)
@@ -531,10 +521,10 @@ private final class Coordinator: NSObject, @unchecked Sendable,
             }) { ok, _ in
                 try? FileManager.default.removeItem(at: exportURL)
                 guard ok else { return }
-                Task { @MainActor in
-                    manager.showSavedBanner = true
+                Task { @MainActor [weak manager] in
+                    manager?.showSavedBanner = true
                     try? await Task.sleep(for: .seconds(2))
-                    manager.showSavedBanner = false
+                    manager?.showSavedBanner = false
                 }
             }
         }
@@ -631,14 +621,6 @@ private extension UIImage {
             // Drawing applies the orientation transform to pixel data
             draw(in: CGRect(origin: .zero, size: size))
         }
-    }
-}
-
-// MARK: - UIDeviceOrientation helpers
-private extension UIDeviceOrientation {
-    var isValidInterfaceOrientation: Bool {
-        return self == .portrait || self == .portraitUpsideDown ||
-               self == .landscapeLeft || self == .landscapeRight
     }
 }
 
