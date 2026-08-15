@@ -6,16 +6,22 @@
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import Foundation
+import Metal
 
 final class TechnicolorEngine: Sendable {
 
     private let filterLock = NSLock()
+    private let displayP3 = CGColorSpace(name: CGColorSpace.displayP3)!
 
     let context: CIContext = {
-        CIContext(options: [
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            preconditionFailure("TCAM requires a Metal-capable device")
+        }
+        CIContext(mtlDevice: device, options: [
             .useSoftwareRenderer: false,
-            .workingColorSpace:  CGColorSpace(name: CGColorSpace.displayP3) as Any,
-            .outputColorSpace:   CGColorSpace(name: CGColorSpace.displayP3) as Any
+            .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearDisplayP3) as Any,
+            .outputColorSpace: CGColorSpace(name: CGColorSpace.displayP3) as Any,
+            .cacheIntermediates: false
         ])
     }()
 
@@ -97,7 +103,7 @@ final class TechnicolorEngine: Sendable {
     func render(_ process: TechnicolorProcess, image: CIImage) -> CGImage? {
         filterLock.lock()
         defer { filterLock.unlock() }
-        let filtered = applyUnlocked(process, to: image)
+        let filtered = toneMap(applyUnlocked(process, to: image))
         return context.createCGImage(filtered, from: filtered.extent)
     }
 
@@ -106,6 +112,20 @@ final class TechnicolorEngine: Sendable {
             return rawFilter.outputImage
         }
         return CIImage(data: data)
+    }
+
+    func jpegData(from image: UIImage, quality: CGFloat = 0.98) -> Data? {
+        guard let cgImage = image.cgImage else { return nil }
+        filterLock.lock()
+        defer { filterLock.unlock() }
+        let image = CIImage(cgImage: cgImage, options: [
+            .colorSpace: displayP3
+        ])
+        return context.jpegRepresentation(
+            of: image,
+            colorSpace: displayP3,
+            options: [.lossyCompressionQuality: quality]
+        )
     }
 
     private func applyUnlocked(_ process: TechnicolorProcess, to image: CIImage) -> CIImage {
@@ -151,6 +171,14 @@ final class TechnicolorEngine: Sendable {
         cmCine.inputImage = img; img = cmCine.outputImage ?? img
         vigCine.inputImage = img; img = vigCine.outputImage ?? img
         return halation(img, amount: 0.05)
+    }
+
+    private func toneMap(_ image: CIImage) -> CIImage {
+        let toneMap = CIFilter.highlightShadowAdjust()
+        toneMap.inputImage = image
+        toneMap.shadowAmount = 0.15
+        toneMap.highlightAmount = 0.85
+        return toneMap.outputImage ?? image
     }
 
     private func halation(_ image: CIImage, amount: Float) -> CIImage {

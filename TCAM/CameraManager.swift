@@ -441,8 +441,9 @@ private final class Coordinator: NSObject,
             
             // ✅ Crop with proper orientation handling (normalize → crop → .up orientation)
             let cropped = original.croppedToAspectRatio(orientedRatio)
+            let instagramCrop = cropped.croppedToAspectRatio(4.0 / 5.0)
             let final = PhotoWatermarker.apply(
-                to: cropped,
+                to: instagramCrop,
                 metadata: photo.metadata,
                 zoomFactor: manager.zoomSnapshot(),
                 process: process,
@@ -454,11 +455,21 @@ private final class Coordinator: NSObject,
             manager.isCapturing = false
             manager.capturedImage = final
             
-            guard manager.photoPermissionGranted else { return }
+            guard manager.photoPermissionGranted,
+                  let jpegData = engine.jpegData(from: final) else { return }
+            let exportURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("jpg")
+            do {
+                try jpegData.write(to: exportURL, options: .atomic)
+            } catch {
+                return
+            }
             PHPhotoLibrary.shared().performChanges({
-                let req = PHAssetChangeRequest.creationRequestForAsset(from: final)
+                let req = PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: exportURL)
                 req.creationDate = Date()
             }) { ok, _ in
+                try? FileManager.default.removeItem(at: exportURL)
                 guard ok else { return }
                 Task { @MainActor in
                     manager.showSavedBanner = true
