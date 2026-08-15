@@ -97,8 +97,24 @@ struct CameraView: View {
             // ── Viewfinder ──────────────────────────────────────────────
             Color.black.ignoresSafeArea()
 
-            ViewfinderImage(frame: camera.filteredFrame, aspectRatio: .standard)
-                .gesture(pinchGesture)
+            GeometryReader { proxy in
+                ViewfinderImage(frame: camera.filteredFrame, aspectRatio: .standard)
+                    .frame(
+                        width: max(0, proxy.size.width - 24),
+                        height: max(0, proxy.size.height - 300),
+                        alignment: .top
+                    )
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 30, style: .continuous)
+                            .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .top)
+                    .offset(y: 6)
+                    .gesture(pinchGesture)
+            }
+            .ignoresSafeArea()
 
             // Shutter flash overlay
             Color.white
@@ -106,26 +122,6 @@ struct CameraView: View {
                 .opacity(shutterFlash ? 0.18 : 0)
                 .animation(.easeOut(duration: 0.25), value: shutterFlash)
                 .allowsHitTesting(false)
-
-            // ── HUD: focal length chip ───────────────────────────────────
-            VStack {
-                HStack {
-                    FocalLengthChip(label: focalLengthLabel)
-                        .offset(y: hudVisible ? 0 : -12)
-                        .opacity(hudVisible ? 1 : 0)
-                    Spacer()
-                    // ISO / shutter speed ghost info
-                    ExposureInfoChip(
-                        iso: camera.currentISO,
-                        shutterSpeed: camera.currentShutterSpeed
-                    )
-                        .offset(y: hudVisible ? 0 : -12)
-                        .opacity(hudVisible ? 1 : 0)
-                }
-                .padding(.horizontal, DS.hPad)
-                .padding(.top, 62) // clears Dynamic Island
-                Spacer()
-            }
 
             // ── Control Panel ────────────────────────────────────────────
             VStack {
@@ -337,11 +333,12 @@ private struct ControlPanel: View {
 
     var body: some View {
         VStack(spacing: DS.rowSpacing) {
-            // ── Row 1: Exposure ─────────────────────────────────────────
-            ExposureRow(presets: exposurePresets, camera: camera)
-
-            // ── Row 2: Film Process filters ─────────────────────────────
-            FilterRow(filters: filters, camera: camera)
+            HStack {
+                ExposureRow(presets: exposurePresets, camera: camera)
+                Spacer()
+                FilterRow(filters: filters, camera: camera)
+            }
+            .padding(.horizontal, 4)
 
             // ── Divider ─────────────────────────────────────────────────
             Rectangle()
@@ -374,37 +371,28 @@ private struct ExposureRow: View {
     var camera: CameraManager
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(presets, id: \.self) { value in
-                let isActive = abs(camera.exposureBias - value) < 0.05
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        camera.setExposureBias(value)
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: value == 0 ? "circle" : (value > 0 ? "plus" : "minus"))
-                            .font(.system(size: 9, weight: .medium))
-                        Text(value == 0 ? "0 EV" : (value > 0 ? "1 EV" : "1 EV"))
-                            .font(DS.monoSm)
-                            .tracking(0.5)
-                    }
-                    .foregroundStyle(isActive ? DS.gold : DS.textDim)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: DS.pillH)
-                    .background(isActive ? DS.gold.opacity(0.12) : Color.clear)
-                    .overlay(
-                        Capsule()
-                            .stroke(isActive ? DS.gold.opacity(0.45) : Color.clear, lineWidth: 0.75)
-                    )
-                    .clipShape(Capsule())
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(ScaleButtonStyle(scale: 0.94))
+        Button {
+            let currentIndex = presets.firstIndex { abs(camera.exposureBias - $0) < 0.05 } ?? 1
+            camera.setExposureBias(presets[(currentIndex + 1) % presets.count])
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "plusminus")
+                Text(exposureLabel)
+                    .contentTransition(.numericText())
             }
+            .font(DS.monoMd)
+            .foregroundStyle(DS.textPrimary)
+            .frame(height: 34)
+            .padding(.horizontal, 14)
+            .background(Color.white.opacity(0.10), in: Capsule())
         }
-        .padding(4)
-        .glassCard(shape: .pill)
+        .buttonStyle(ScaleButtonStyle(scale: 0.94))
+    }
+
+    private var exposureLabel: String {
+        if camera.exposureBias > 0.05 { return "+1 EV" }
+        if camera.exposureBias < -0.05 { return "−1 EV" }
+        return "0 EV"
     }
 }
 // MARK: - Filter Row (Liquid Glass / Apple Glass)
@@ -414,15 +402,16 @@ private struct FilterRow: View {
 
     var body: some View {
         HStack(spacing: 18) {
-            ForEach(filters) { filter in
+            ForEach([camera.currentProcess]) { filter in
                 let isSelected = camera.currentProcess == filter
                 
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     withAnimation(.easeInOut(duration: 0.18)) {
-                        camera.updateProcess(filter)
+                        camera.updateProcess(nextFilter(after: filter))
                     }
                 } label: {
+                    HStack(spacing: 8) {
                     // 🪞 Liquid Glass circle
                     ZStack {
                         // Base glass circle with frosted blur effect
@@ -502,6 +491,14 @@ private struct FilterRow: View {
                     .scaleEffect(isSelected ? 1.06 : 1.0)
                     .animation(.easeOut(duration: 0.15), value: isSelected)
                     .glassEffect()  // ✅ Apple-style frosted blur
+                    Text(filter.rawValue)
+                        .font(DS.monoSm)
+                        .foregroundStyle(DS.textPrimary)
+                        .lineLimit(1)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.08), in: Capsule())
                 }
                 .buttonStyle(ScaleButtonStyle(scale: 0.94))
                 .accessibilityLabel(filter.rawValue)
@@ -520,6 +517,11 @@ private struct FilterRow: View {
         case .threeStrip: return Color(red: 0.95, green: 0.48, blue: 0.22)    // deep burnt orange
         }
     }
+
+    private func nextFilter(after current: TechnicolorProcess) -> TechnicolorProcess {
+        let index = filters.firstIndex(of: current) ?? 0
+        return filters[(index + 1) % filters.count]
+    }
 }
 // MARK: - Lens Row
 private struct LensRow: View {
@@ -529,47 +531,36 @@ private struct LensRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // 0.5×
-            LensSegment(
-                primary:   "0.5×",
-                secondary: "13mm",
-                isActive:  isLensActive(0.5)
-            ) {
+            LensSegment(primary: "0.5×", secondary: "13mm", isActive: isLensActive(0.5)) {
                 camera.switchToLens(type: .builtInUltraWideCamera, avZoom: 0.5, logicalZoom: 0.5)
             }
 
             SegmentDivider()
 
-            // 1× / 2×
             LensSegment(
-                primary:   wideZoomToggle == 1.0 ? "1×" : "2×",
+                primary: wideZoomToggle == 1.0 ? "1×" : "2×",
                 secondary: wideZoomToggle == 1.0 ? "24mm" : "48mm",
-                isActive:  isLensActive(wideZoomToggle)
+                isActive: isLensActive(wideZoomToggle)
             ) {
                 camera.switchToLens(type: .builtInWideAngleCamera, avZoom: wideZoomToggle, logicalZoom: wideZoomToggle)
             }
             .onTapGesture(count: 2) {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    wideZoomToggle = wideZoomToggle == 1.0 ? 2.0 : 1.0
-                    camera.switchToLens(type: .builtInWideAngleCamera, avZoom: wideZoomToggle, logicalZoom: wideZoomToggle)
-                }
+                wideZoomToggle = wideZoomToggle == 1.0 ? 2.0 : 1.0
+                camera.switchToLens(type: .builtInWideAngleCamera, avZoom: wideZoomToggle, logicalZoom: wideZoomToggle)
             }
 
             SegmentDivider()
 
-            // 5× / 10×
             LensSegment(
-                primary:   teleZoomToggle == 1.0 ? "5×" : "10×",
+                primary: teleZoomToggle == 1.0 ? "5×" : "10×",
                 secondary: teleZoomToggle == 1.0 ? "120mm" : "240mm",
-                isActive:  isLensActive(teleZoomToggle * 5.0)
+                isActive: isLensActive(teleZoomToggle * 5.0)
             ) {
                 camera.switchToLens(type: .builtInTelephotoCamera, avZoom: teleZoomToggle, logicalZoom: teleZoomToggle * 5.0)
             }
             .onTapGesture(count: 2) {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    teleZoomToggle = teleZoomToggle == 1.0 ? 2.0 : 1.0
-                    camera.switchToLens(type: .builtInTelephotoCamera, avZoom: teleZoomToggle, logicalZoom: teleZoomToggle * 5.0)
-                }
+                teleZoomToggle = teleZoomToggle == 1.0 ? 2.0 : 1.0
+                camera.switchToLens(type: .builtInTelephotoCamera, avZoom: teleZoomToggle, logicalZoom: teleZoomToggle * 5.0)
             }
         }
         .frame(height: DS.pillH)
@@ -657,25 +648,9 @@ struct ShutterButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                // Outer ring — gold when capturing
-                Circle()
-                    .stroke(
-                        isCapturing ? DS.gold : DS.borderHi,
-                        lineWidth: 1.5
-                    )
-                    .frame(width: 84, height: 84)
-                    .scaleEffect(isCapturing ? 1.06 : 1.0)
-                    .animation(.easeInOut(duration: 0.25), value: isCapturing)
-
-                // Second decorative ring
-                Circle()
-                    .stroke(DS.gold.opacity(0.18), lineWidth: 0.5)
-                    .frame(width: 76, height: 76)
-
-                // Fill
-                Circle()
+                RoundedRectangle(cornerRadius: 42, style: .continuous)
                     .fill(shutterFill)
-                    .frame(width: 64, height: 64)
+                    .frame(width: 164, height: 94)
                     .scaleEffect(isPressed ? 0.90 : 1.0)
                     .shadow(
                         color: isCapturing ? DS.gold.opacity(0.35) : .clear,
@@ -684,10 +659,9 @@ struct ShutterButton: View {
                     )
                     .animation(.easeOut(duration: 0.2), value: isCapturing)
 
-                // Inner glint
-                Circle()
+                RoundedRectangle(cornerRadius: 36, style: .continuous)
                     .stroke(Color.white.opacity(0.18), lineWidth: 0.5)
-                    .frame(width: 58, height: 58)
+                    .frame(width: 150, height: 80)
                     .scaleEffect(isPressed ? 0.90 : 1.0)
             }
         }
