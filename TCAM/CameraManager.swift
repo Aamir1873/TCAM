@@ -69,7 +69,7 @@ final class CameraManager {
 
     @ObservationIgnored nonisolated(unsafe) var logicalZoomFactor: CGFloat = 1.0
     @ObservationIgnored nonisolated(unsafe) var currentProcessCache: TechnicolorProcess = .cinematic
-    @ObservationIgnored nonisolated(unsafe) private let processLock = NSLock()
+    @ObservationIgnored nonisolated(unsafe) private let stateLock = NSLock()
     // ✅ watermarkEnabled removed - no longer needed
 
     let cameraPosition: AVCaptureDevice.Position = .back
@@ -229,7 +229,9 @@ final class CameraManager {
     func switchToLens(type: AVCaptureDevice.DeviceType, avZoom: CGFloat, logicalZoom: CGFloat) {
         currentLens       = type
         displayLogicalZoomFactor = logicalZoom
+        stateLock.lock()
         logicalZoomFactor = logicalZoom
+        stateLock.unlock()
         activeLensType    = type
 
         let position       = self.cameraPosition
@@ -342,15 +344,21 @@ final class CameraManager {
 
     func updateProcess(_ process: TechnicolorProcess) {
         currentProcess = process
-        processLock.lock()
+        stateLock.lock()
         currentProcessCache = process
-        processLock.unlock()
+        stateLock.unlock()
     }
 
     nonisolated func processSnapshot() -> TechnicolorProcess {
-        processLock.lock()
-        defer { processLock.unlock() }
+        stateLock.lock()
+        defer { stateLock.unlock() }
         return currentProcessCache
+    }
+
+    nonisolated func zoomSnapshot() -> CGFloat {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return logicalZoomFactor
     }
 }
 
@@ -392,8 +400,7 @@ private final class Coordinator: NSObject,
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let ciImage  = CIImage(cvPixelBuffer: pixelBuffer, options: [.applyOrientationProperty: true])
         let process  = manager?.processSnapshot() ?? .cinematic
-        let filtered = engine.apply(process, to: ciImage)
-        guard let cgImage = engine.context.createCGImage(filtered, from: filtered.extent) else { return }
+        guard let cgImage = engine.render(process, image: ciImage) else { return }
         Task { @MainActor [weak manager] in manager?.filteredFrame = cgImage }
     }
     
@@ -411,9 +418,7 @@ private final class Coordinator: NSObject,
         }
         
         let process = manager?.processSnapshot() ?? .cinematic
-        let filtered = engine.apply(process, to: ciSource)
-        
-        guard let cg = engine.context.createCGImage(filtered, from: filtered.extent) else {
+        guard let cg = engine.render(process, image: ciSource) else {
             Task { @MainActor [weak manager] in manager?.isCapturing = false }
             return
         }
@@ -436,7 +441,7 @@ private final class Coordinator: NSObject,
             let final = PhotoWatermarker.apply(
                 to: cropped,
                 metadata: photo.metadata,
-                zoomFactor: manager.logicalZoomFactor,
+                zoomFactor: manager.zoomSnapshot(),
                 process: process,
                 location: manager.lastLocation,
                 locationString: manager.lastLocationString,

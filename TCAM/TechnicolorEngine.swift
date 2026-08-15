@@ -37,7 +37,6 @@ final class TechnicolorEngine: Sendable {
     nonisolated(unsafe) private let vigCine  = CIFilter.vignette()
 
     nonisolated(unsafe) private let blurFilter   = CIFilter.gaussianBlur()
-    nonisolated(unsafe) private let blurMultiply = CIFilter(name: "CIMultiplyCompositing")!
     nonisolated(unsafe) private let blurColorMat = CIFilter.colorMatrix()
     nonisolated(unsafe) private let addBlend     = CIFilter(name: "CIAdditionCompositing")!
 
@@ -87,6 +86,22 @@ final class TechnicolorEngine: Sendable {
     func apply(_ process: TechnicolorProcess, to image: CIImage) -> CIImage {
         filterLock.lock()
         defer { filterLock.unlock() }
+        switch process {
+        case .cinematic:  cinematic(image)
+        case .threeStrip: threeStrip(image)
+        case .twoStrip:   twoStrip(image)
+        case .monopack:   monopack(image)
+        }
+    }
+
+    func render(_ process: TechnicolorProcess, image: CIImage) -> CGImage? {
+        filterLock.lock()
+        defer { filterLock.unlock() }
+        let filtered = applyUnlocked(process, to: image)
+        return context.createCGImage(filtered, from: filtered.extent)
+    }
+
+    private func applyUnlocked(_ process: TechnicolorProcess, to image: CIImage) -> CIImage {
         switch process {
         case .cinematic:  cinematic(image)
         case .threeStrip: threeStrip(image)
