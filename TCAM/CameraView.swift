@@ -82,7 +82,6 @@ struct CameraView: View {
     @State private var zoomUpdateTask: Task<Void, Never>?
     
     // ✅ UPDATED: Use AspectRatio enum instead of raw CGFloat
-    @State private var aspectRatio: CameraManager.AspectRatio = .standard
 
     // Animation states
     @State private var controlsVisible = false
@@ -98,7 +97,7 @@ struct CameraView: View {
             // ── Viewfinder ──────────────────────────────────────────────
             Color.black.ignoresSafeArea()
 
-            ViewfinderImage(frame: camera.filteredFrame, aspectRatio: aspectRatio)
+            ViewfinderImage(frame: camera.filteredFrame, aspectRatio: .standard)
                 .gesture(pinchGesture)
 
             // Shutter flash overlay
@@ -137,7 +136,6 @@ struct CameraView: View {
                     exposurePresets: exposurePresets,
                     wideZoomToggle: $wideZoomToggle,
                     teleZoomToggle: $teleZoomToggle,
-                    aspectRatio: $aspectRatio,  // ✅ Now binds to AspectRatio enum
                     onCapture: triggerShutterFeedback,
                     onPreview: { isShowingPhotoPreview = true }
                 )
@@ -145,14 +143,23 @@ struct CameraView: View {
                 .opacity(controlsVisible ? 1 : 0)
                 .padding(.bottom, DS.controlBottomPad)
             }
+
+            if let error = camera.captureErrorMessage {
+                Text(error)
+                    .font(DS.sansSm)
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.black.opacity(0.72), in: Capsule())
+                    .padding(.horizontal, 24)
+                    .padding(.top, 116)
+                    .transition(.opacity)
+            }
         }
         .background(.black)
         // ✅ UPDATED: onChange now sets the enum directly
-        .onChange(of: aspectRatio) { _, newValue in
-            camera.setAspectRatio(newValue)
-        }
         .onChange(of: scenePhase) { camera.handleScenePhase($1) }
-        .animation(.easeInOut(duration: 0.3), value: aspectRatio)
         .task {
             await camera.requestPermissions()
             withAnimation(.spring(response: 0.55, dampingFraction: 0.82).delay(0.1)) {
@@ -325,7 +332,6 @@ private struct ControlPanel: View {
     let exposurePresets: [Float]
     @Binding var wideZoomToggle: CGFloat
     @Binding var teleZoomToggle: CGFloat
-    @Binding var aspectRatio: CameraManager.AspectRatio  // ✅ Enum binding
     let onCapture: () -> Void
     let onPreview: () -> Void
 
@@ -355,8 +361,7 @@ private struct ControlPanel: View {
                 ShutterRow(
                     camera: camera,
                     onCapture: onCapture,
-                    onPreview: onPreview,
-                    aspectRatio: $aspectRatio
+                    onPreview: onPreview
                 )
         }
         .padding(.horizontal, DS.hPad)
@@ -616,7 +621,6 @@ private struct ShutterRow: View {
     var camera: CameraManager
     let onCapture: () -> Void
     let onPreview: () -> Void
-    @Binding var aspectRatio: CameraManager.AspectRatio  // ✅ Enum binding
 
     var body: some View {
         HStack(alignment: .center) {
@@ -630,25 +634,8 @@ private struct ShutterRow: View {
 
             Spacer()
 
-            // Aspect Ratio Toggle + Flash
+            // Fixed 4:3 capture + Flash
             HStack(spacing: 8) {
-                // ✅ UPDATED: Cycle through AspectRatio enum cases
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        aspectRatio = aspectRatio.next
-                    }
-                } label: {
-                    Text(aspectRatio.displayLabel)
-                        .font(DS.monoSm)
-                        .foregroundStyle(aspectRatio == .standard ? DS.textDim : DS.gold)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(aspectRatio == .standard ? Color.clear : DS.scrim)
-                        .overlay(Capsule().stroke(aspectRatio == .standard ? DS.border : DS.gold.opacity(0.35), lineWidth: 0.75))
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(ScaleButtonStyle(scale: 0.94))
-
                 // Flash
                 FlashButton(isOn: camera.isFlashOn) {
                     withAnimation(.easeInOut(duration: 0.15)) {
@@ -830,24 +817,5 @@ struct ScaleButtonStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? scale : 1.0)
             .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
-    }
-}
-
-// MARK: - AspectRatio UI Extensions
-// ✅ Helper extensions for AspectRatio enum in UI
-private extension CameraManager.AspectRatio {
-    /// User-friendly display label for the toggle button
-    var displayLabel: String {
-        switch self {
-        case .standard: return "4:3"
-        case .portrait: return "3:4"
-        }
-    }
-    
-    /// Cycle to next aspect ratio in the sequence
-    var next: CameraManager.AspectRatio {
-        let all = CameraManager.AspectRatio.allCases
-        guard let idx = all.firstIndex(of: self) else { return .standard }
-        return all[(idx + 1) % all.count]
     }
 }

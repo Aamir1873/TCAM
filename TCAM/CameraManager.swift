@@ -19,12 +19,10 @@ final class CameraManager {
     // MARK: - Aspect Ratio Support
     enum AspectRatio: CaseIterable {
         case standard       // 4:3
-        case portrait       // 3:4
         
         var ratio: CGFloat {
             switch self {
             case .standard: return 4.0 / 3.0
-            case .portrait: return 3.0 / 4.0
             }
         }
         
@@ -44,6 +42,7 @@ final class CameraManager {
     var permissionState: PermissionState = .unknown
     var photoPermissionGranted = false
     var showSavedBanner = false
+    var captureErrorMessage: String?
     var exposureBias: Float = 0.0
     var currentISO: Float           = 0
     var currentShutterSpeed: Double = 0
@@ -321,10 +320,17 @@ final class CameraManager {
     // MARK: - Capture
 
     func capturePhoto() {
-        guard permissionState == .granted,
-              session.isRunning,
-              coordinator.photoOutput.connection(with: .video) != nil,
-              !isCapturing else { return }
+        guard permissionState == .granted else {
+            captureErrorMessage = "Camera permission is required to capture a photo."
+            return
+        }
+        guard session.isRunning,
+              coordinator.photoOutput.connection(with: .video) != nil else {
+            captureErrorMessage = "The camera is still starting. Try again in a moment."
+            return
+        }
+        guard !isCapturing else { return }
+        captureErrorMessage = nil
         fireShutter()
     }
 
@@ -335,6 +341,7 @@ final class CameraManager {
             AVCapturePhotoOutput.isAppleProRAWPixelFormat($0)
         }) else {
             isCapturing = false
+            captureErrorMessage = "Apple ProRAW is unavailable for the current camera configuration."
             return
         }
         let settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
@@ -420,17 +427,34 @@ private final class Coordinator: NSObject, @unchecked Sendable,
         didFinishProcessingPhoto photo: AVCapturePhoto,
         error: Error?
     ) {
-        guard error == nil,
-              let data = photo.fileDataRepresentation(),
-              let ciSource = engine.sourceImage(from: data, isRaw: photo.isRawPhoto)
-        else {
-            Task { @MainActor [weak manager] in manager?.isCapturing = false }
+        guard error == nil else {
+            Task { @MainActor [weak manager] in
+                manager?.isCapturing = false
+                manager?.captureErrorMessage = "ProRAW capture failed."
+            }
+            return
+        }
+        guard let data = photo.fileDataRepresentation() else {
+            Task { @MainActor [weak manager] in
+                manager?.isCapturing = false
+                manager?.captureErrorMessage = "The ProRAW file was empty."
+            }
+            return
+        }
+        guard let ciSource = engine.sourceImage(from: data, isRaw: photo.isRawPhoto) else {
+            Task { @MainActor [weak manager] in
+                manager?.isCapturing = false
+                manager?.captureErrorMessage = "The ProRAW file could not be decoded."
+            }
             return
         }
         
         let process = manager?.processSnapshot() ?? .cinematic
         guard let cg = engine.render(process, image: ciSource) else {
-            Task { @MainActor [weak manager] in manager?.isCapturing = false }
+            Task { @MainActor [weak manager] in
+                manager?.isCapturing = false
+                manager?.captureErrorMessage = "The image processor could not render the ProRAW frame."
+            }
             return
         }
         
