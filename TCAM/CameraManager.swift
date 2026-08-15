@@ -359,16 +359,8 @@ final class CameraManager {
         let coordinatorRef = coordinator
 
         sessionQueue.async {
-            coordinatorRef.setPreviewEnabled(false)
             coordinatorRef.updatePhotoConnection(rotationAngle: rotationAngle, isMirrored: isFront)
             coordinatorRef.photoOutput.capturePhoto(with: settings, delegate: coordinatorRef)
-        }
-    }
-
-    private func resumePreview() {
-        let coordinatorRef = coordinator
-        sessionQueue.async {
-            coordinatorRef.setPreviewEnabled(true)
         }
     }
 
@@ -412,16 +404,6 @@ private final class Coordinator: NSObject, @unchecked Sendable,
         update(connection: photoOutput.connection(with: .video), rotationAngle: rotationAngle, isMirrored: isMirrored)
     }
 
-    nonisolated func setPreviewEnabled(_ enabled: Bool) {
-        videoOutput.connection(with: .video)?.isEnabled = enabled
-    }
-
-    nonisolated func finishPhotoCapture() {
-        Task { @MainActor [weak manager] in
-            manager?.resumePreview()
-        }
-    }
-    
     private nonisolated func update(connection: AVCaptureConnection?, rotationAngle: CGFloat, isMirrored: Bool) {
         guard let connection else { return }
         if connection.isVideoRotationAngleSupported(rotationAngle) {
@@ -453,7 +435,6 @@ private final class Coordinator: NSObject, @unchecked Sendable,
         error: Error?
     ) {
         guard error == nil else {
-            finishPhotoCapture()
             Task { @MainActor [weak manager] in
                 manager?.isCapturing = false
                 manager?.captureErrorMessage = "ProRAW capture failed."
@@ -461,7 +442,6 @@ private final class Coordinator: NSObject, @unchecked Sendable,
             return
         }
         guard let data = photo.fileDataRepresentation() else {
-            finishPhotoCapture()
             Task { @MainActor [weak manager] in
                 manager?.isCapturing = false
                 manager?.captureErrorMessage = "The ProRAW file was empty."
@@ -469,7 +449,6 @@ private final class Coordinator: NSObject, @unchecked Sendable,
             return
         }
         guard let ciSource = engine.sourceImage(from: data, isRaw: photo.isRawPhoto) else {
-            finishPhotoCapture()
             Task { @MainActor [weak manager] in
                 manager?.isCapturing = false
                 manager?.captureErrorMessage = "The ProRAW file could not be decoded."
@@ -479,7 +458,6 @@ private final class Coordinator: NSObject, @unchecked Sendable,
         
         let process = manager?.processSnapshot() ?? .cinematic
         guard let cg = engine.render(process, image: ciSource) else {
-            finishPhotoCapture()
             Task { @MainActor [weak manager] in
                 manager?.isCapturing = false
                 manager?.captureErrorMessage = "The image processor could not render the ProRAW frame."
@@ -516,7 +494,6 @@ private final class Coordinator: NSObject, @unchecked Sendable,
             
             manager.isCapturing = false
             manager.capturedImage = final
-            manager.resumePreview()
             
             guard manager.photoPermissionGranted,
                   let jpegData = engine.jpegData(from: final) else { return }
