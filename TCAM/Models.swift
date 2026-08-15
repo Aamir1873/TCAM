@@ -6,7 +6,7 @@
 import SwiftUI
 
 enum TechnicolorProcess: String, CaseIterable, Identifiable {
-    case cinematic  = "CINEMATIC"
+    case cinematic  = "SAPPHIRE"
     case threeStrip = "THREE-STRIP"
     case twoStrip   = "TWO-STRIP"
     case monopack   = "MONOPACK"
@@ -15,7 +15,7 @@ enum TechnicolorProcess: String, CaseIterable, Identifiable {
 
     var subtitle: String {
         switch self {
-        case .cinematic:  "Cool tones boosted, oranges muted for modern cinema look"
+        case .cinematic:  "Cool sapphire tones with softly muted oranges"
         case .threeStrip: "Classic 1930–50s Hollywood richness"
         case .twoStrip:   "Early 1920s amber & cyan duality"
         case .monopack:   "1950s Eastmancolor warmth"

@@ -22,7 +22,7 @@ final class PhotoWatermarker {
 
     static func filterDisplayName(for process: TechnicolorProcess) -> String {
         switch process {
-        case .cinematic:  return "CINEMATIC"
+        case .cinematic:  return "SAPPHIRE"
         case .twoStrip:   return "TWO-STRIP"
         case .monopack:   return "MONOPACK"
         case .threeStrip: return "THREE-STRIP"
