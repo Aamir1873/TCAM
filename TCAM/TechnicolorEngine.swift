@@ -6,7 +6,9 @@
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import Foundation
+import ImageIO
 import Metal
+import UIKit
 
 final class TechnicolorEngine: Sendable {
 
@@ -17,7 +19,7 @@ final class TechnicolorEngine: Sendable {
         guard let device = MTLCreateSystemDefaultDevice() else {
             preconditionFailure("TCAM requires a Metal-capable device")
         }
-        CIContext(mtlDevice: device, options: [
+        return CIContext(mtlDevice: device, options: [
             .useSoftwareRenderer: false,
             .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearDisplayP3) as Any,
             .outputColorSpace: CGColorSpace(name: CGColorSpace.displayP3) as Any,
@@ -92,12 +94,7 @@ final class TechnicolorEngine: Sendable {
     func apply(_ process: TechnicolorProcess, to image: CIImage) -> CIImage {
         filterLock.lock()
         defer { filterLock.unlock() }
-        switch process {
-        case .cinematic:  cinematic(image)
-        case .threeStrip: threeStrip(image)
-        case .twoStrip:   twoStrip(image)
-        case .monopack:   monopack(image)
-        }
+        return applyUnlocked(process, to: image)
     }
 
     func render(_ process: TechnicolorProcess, image: CIImage) -> CGImage? {
@@ -124,7 +121,9 @@ final class TechnicolorEngine: Sendable {
         return context.jpegRepresentation(
             of: image,
             colorSpace: displayP3,
-            options: [.lossyCompressionQuality: quality]
+            options: [
+                kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: quality
+            ]
         )
     }
 
