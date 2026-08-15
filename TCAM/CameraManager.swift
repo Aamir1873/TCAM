@@ -468,6 +468,7 @@ private final class Coordinator: NSObject, @unchecked Sendable,
         // ✅ Preserve EXIF orientation metadata
         let orientationValue = photo.metadata[kCGImagePropertyOrientation as String] as? UInt32 ?? 1
         let uiOrientation = UIImage.Orientation.fromCG(orientationValue)
+        let photoMetadata = photo.metadata
         let original = UIImage(cgImage: cg, scale: 1.0, orientation: uiOrientation)
         
         Task { @MainActor [weak manager] in
@@ -483,7 +484,7 @@ private final class Coordinator: NSObject, @unchecked Sendable,
             let instagramCrop = cropped.croppedToAspectRatio(4.0 / 5.0)
             let final = PhotoWatermarker.apply(
                 to: instagramCrop,
-                metadata: photo.metadata,
+                metadata: photoMetadata,
                 zoomFactor: manager.zoomSnapshot(),
                 process: process,
                 location: manager.lastLocation,
