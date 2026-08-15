@@ -465,8 +465,9 @@ private final class Coordinator: NSObject, @unchecked Sendable,
             // Crop, JPEG encoding, and file I/O are intentionally
             // off the main actor. A ProRAW shot can otherwise hold the UI for
             // several seconds even after its CI render has been downscaled.
-            // Instagram portrait posts use a 4:5 image canvas.
-            let final = original.croppedToAspectRatio(4.0 / 5.0)
+            // Preserve the original 3:4 or 4:3 photo and add a white frame
+            // around it so the complete Instagram canvas is exactly 4:5.
+            let final = original.framedToAspectRatio(4.0 / 5.0)
 
             Task { @MainActor [weak manager] in
                 manager?.isCapturing = false
@@ -501,6 +502,63 @@ private final class Coordinator: NSObject, @unchecked Sendable,
 
 // MARK: - Aspect Ratio Crop & Orientation (Updated)
 private extension UIImage {
+
+    /// Fits the image inside an editorial gallery mat at the requested aspect
+    /// ratio, preserving every source pixel instead of cropping the photo.
+    func framedToAspectRatio(_ targetRatio: CGFloat) -> UIImage {
+        let normalized = normalizedForProcessing()
+        guard targetRatio > 0, let normalizedCG = normalized.cgImage else { return self }
+
+        let sourceWidth = CGFloat(normalizedCG.width)
+        let sourceHeight = CGFloat(normalizedCG.height)
+        let canvasWidth = max(sourceWidth, sourceHeight * targetRatio)
+        let canvasHeight = canvasWidth / targetRatio
+
+        // A restrained, asymmetric print margin gives the image a considered
+        // editorial/gallery feel while keeping the complete canvas 4:5.
+        let sideMargin = canvasWidth * 0.045
+        let topMargin = canvasHeight * 0.040
+        let bottomMargin = canvasHeight * 0.062
+        let availableWidth = canvasWidth - sideMargin * 2
+        let availableHeight = canvasHeight - topMargin - bottomMargin
+        let imageScale = min(availableWidth / sourceWidth, availableHeight / sourceHeight)
+        let imageWidth = sourceWidth * imageScale
+        let imageHeight = sourceHeight * imageScale
+        let imageRect = CGRect(
+            x: (canvasWidth - imageWidth) / 2,
+            y: topMargin + (availableHeight - imageHeight) / 2,
+            width: imageWidth,
+            height: imageHeight
+        )
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        let renderer = UIGraphicsImageRenderer(
+            size: CGSize(width: canvasWidth, height: canvasHeight),
+            format: format
+        )
+
+        return renderer.image { _ in
+            UIColor(red: 0.945, green: 0.930, blue: 0.895, alpha: 1.0).setFill()
+            UIRectFill(CGRect(x: 0, y: 0, width: canvasWidth, height: canvasHeight))
+
+            let cgContext = UIGraphicsGetCurrentContext()
+            cgContext?.saveGState()
+            cgContext?.setShadow(
+                offset: CGSize(width: 0, height: canvasWidth * 0.004),
+                blur: canvasWidth * 0.010,
+                color: UIColor.black.withAlphaComponent(0.16).cgColor
+            )
+            normalized.draw(in: imageRect)
+            cgContext?.restoreGState()
+
+            UIColor(red: 0.08, green: 0.085, blue: 0.08, alpha: 0.72).setStroke()
+            let lineWidth = max(1.0, canvasWidth / 1800.0)
+            let keylineRect = imageRect.insetBy(dx: lineWidth * 0.5, dy: lineWidth * 0.5)
+            cgContext?.setLineWidth(lineWidth)
+            cgContext?.stroke(keylineRect)
+        }
+    }
     
     /// Crops image to target aspect ratio with correct orientation handling.
     /// Normalizes orientation FIRST, then crops, ensuring output is always .up
