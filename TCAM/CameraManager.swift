@@ -149,6 +149,12 @@ final class CameraManager {
             sessionRef.outputs.forEach { sessionRef.removeOutput($0) }
 
             if CameraManager.addInput(session: sessionRef, position: position, preferredLens: lens) {
+                // Keep preview samples in a known, Core Image-compatible format.
+                // Leaving this unset lets AVFoundation renegotiate formats while
+                // a still is captured, which can yield invalid frame descriptions.
+                coordinatorRef.videoOutput.videoSettings = [
+                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+                ]
                 coordinatorRef.videoOutput.setSampleBufferDelegate(coordinatorRef, queue: filterQueueRef)
                 coordinatorRef.videoOutput.alwaysDiscardsLateVideoFrames = true
 
@@ -328,11 +334,6 @@ final class CameraManager {
             captureErrorMessage = "Camera permission is required to capture a photo."
             return
         }
-        guard session.isRunning,
-              coordinator.photoOutput.connection(with: .video) != nil else {
-            captureErrorMessage = "The camera is still starting. Try again in a moment."
-            return
-        }
         guard !isCapturing else { return }
         captureErrorMessage = nil
         fireShutter()
@@ -341,27 +342,38 @@ final class CameraManager {
     private func fireShutter() {
         isCapturing = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        // ProRAW is optional. It is unavailable on the simulator and on many
-        // camera/lens combinations, so falling back to JPEG keeps capture
-        // working everywhere instead of rejecting the shutter press.
-        let settings: AVCapturePhotoSettings
-        if let rawFormat = coordinator.photoOutput.availableRawPhotoPixelFormatTypes.first(where: {
-            AVCapturePhotoOutput.isAppleProRAWPixelFormat($0)
-        }), coordinator.photoOutput.isAppleProRAWSupported {
-            settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
-        } else {
-            settings = AVCapturePhotoSettings()
-        }
-        settings.photoQualityPrioritization = .quality
-        let flashSupported = coordinator.photoOutput.supportedFlashModes.contains(.on)
-        settings.flashMode = isFlashOn && flashSupported ? .on : .off
-        settings.maxPhotoDimensions = coordinator.photoOutput.maxPhotoDimensions
-
         let rotationAngle = getRotationAngleForOrientation(UIDevice.current.orientation)
         let isFront = cameraPosition == .front
+        let wantsFlash = isFlashOn
+        let sessionRef = session
         let coordinatorRef = coordinator
 
         sessionQueue.async {
+            guard sessionRef.isRunning,
+                  coordinatorRef.photoOutput.connection(with: .video) != nil else {
+                Task { @MainActor [weak manager = coordinatorRef.manager] in
+                    manager?.isCapturing = false
+                    manager?.captureErrorMessage = "The camera is still starting. Try again in a moment."
+                }
+                return
+            }
+
+            // All AVCapturePhotoOutput state is read on the same queue that
+            // owns session configuration and photo capture. This avoids a
+            // format renegotiation racing the shutter request.
+            let settings: AVCapturePhotoSettings
+            if let rawFormat = coordinatorRef.photoOutput.availableRawPhotoPixelFormatTypes.first(where: {
+                AVCapturePhotoOutput.isAppleProRAWPixelFormat($0)
+            }), coordinatorRef.photoOutput.isAppleProRAWSupported {
+                settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
+            } else {
+                settings = AVCapturePhotoSettings()
+            }
+            settings.photoQualityPrioritization = .quality
+            let flashSupported = coordinatorRef.photoOutput.supportedFlashModes.contains(.on)
+            settings.flashMode = wantsFlash && flashSupported ? .on : .off
+            settings.maxPhotoDimensions = coordinatorRef.photoOutput.maxPhotoDimensions
+
             coordinatorRef.updatePhotoConnection(rotationAngle: rotationAngle, isMirrored: isFront)
             coordinatorRef.photoOutput.capturePhoto(with: settings, delegate: coordinatorRef)
         }
@@ -422,7 +434,9 @@ private final class Coordinator: NSObject, @unchecked Sendable,
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
-        guard CMSampleBufferGetFormatDescription(sampleBuffer) != nil,
+        guard CMSampleBufferDataIsReady(sampleBuffer),
+              let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
+              CMFormatDescriptionGetMediaType(formatDescription) == kCMMediaType_Video,
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
               CVPixelBufferGetWidth(pixelBuffer) > 0,
               CVPixelBufferGetHeight(pixelBuffer) > 0 else { return }
