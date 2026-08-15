@@ -5,14 +5,25 @@
 
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import Foundation
+import ImageIO
+import Metal
+import UIKit
 
 final class TechnicolorEngine: Sendable {
 
+    private let filterLock = NSLock()
+    private let displayP3 = CGColorSpace(name: CGColorSpace.displayP3)!
+
     let context: CIContext = {
-        CIContext(options: [
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            preconditionFailure("TCAM requires a Metal-capable device")
+        }
+        return CIContext(mtlDevice: device, options: [
             .useSoftwareRenderer: false,
-            .workingColorSpace:  CGColorSpace(name: CGColorSpace.displayP3) as Any,
-            .outputColorSpace:   CGColorSpace(name: CGColorSpace.displayP3) as Any
+            .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearDisplayP3) as Any,
+            .outputColorSpace: CGColorSpace(name: CGColorSpace.displayP3) as Any,
+            .cacheIntermediates: false
         ])
     }()
 
@@ -34,7 +45,6 @@ final class TechnicolorEngine: Sendable {
     nonisolated(unsafe) private let vigCine  = CIFilter.vignette()
 
     nonisolated(unsafe) private let blurFilter   = CIFilter.gaussianBlur()
-    nonisolated(unsafe) private let blurMultiply = CIFilter(name: "CIMultiplyCompositing")!
     nonisolated(unsafe) private let blurColorMat = CIFilter.colorMatrix()
     nonisolated(unsafe) private let addBlend     = CIFilter(name: "CIAdditionCompositing")!
 
@@ -82,6 +92,57 @@ final class TechnicolorEngine: Sendable {
     }
 
     func apply(_ process: TechnicolorProcess, to image: CIImage) -> CIImage {
+        filterLock.lock()
+        defer { filterLock.unlock() }
+        return applyUnlocked(process, to: image)
+    }
+
+    func render(
+        _ process: TechnicolorProcess,
+        image: CIImage,
+        maximumDimension: CGFloat? = nil
+    ) -> CGImage? {
+        filterLock.lock()
+        defer { filterLock.unlock() }
+        var source = image
+
+        if let maximumDimension,
+           maximumDimension > 0 {
+            let largestDimension = max(source.extent.width, source.extent.height)
+            if largestDimension > maximumDimension {
+                let scale = maximumDimension / largestDimension
+                source = source.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            }
+        }
+
+        let filtered = toneMap(applyUnlocked(process, to: source))
+        return context.createCGImage(filtered, from: filtered.extent)
+    }
+
+    func sourceImage(from data: Data, isRaw: Bool) -> CIImage? {
+        if isRaw, let rawFilter = CIFilter(imageData: data, options: nil) {
+            return rawFilter.outputImage
+        }
+        return CIImage(data: data)
+    }
+
+    func jpegData(from image: UIImage, quality: CGFloat = 0.98) -> Data? {
+        guard let cgImage = image.cgImage else { return nil }
+        filterLock.lock()
+        defer { filterLock.unlock() }
+        let image = CIImage(cgImage: cgImage, options: [
+            .colorSpace: displayP3
+        ])
+        guard let p3Image = context.createCGImage(
+            image,
+            from: image.extent,
+            format: .RGBA8,
+            colorSpace: displayP3
+        ) else { return nil }
+        return UIImage(cgImage: p3Image).jpegData(compressionQuality: quality)
+    }
+
+    private func applyUnlocked(_ process: TechnicolorProcess, to image: CIImage) -> CIImage {
         switch process {
         case .cinematic:  cinematic(image)
         case .threeStrip: threeStrip(image)
@@ -124,6 +185,14 @@ final class TechnicolorEngine: Sendable {
         cmCine.inputImage = img; img = cmCine.outputImage ?? img
         vigCine.inputImage = img; img = vigCine.outputImage ?? img
         return halation(img, amount: 0.05)
+    }
+
+    private func toneMap(_ image: CIImage) -> CIImage {
+        let toneMap = CIFilter.highlightShadowAdjust()
+        toneMap.inputImage = image
+        toneMap.shadowAmount = 0.15
+        toneMap.highlightAmount = 0.85
+        return toneMap.outputImage ?? image
     }
 
     private func halation(_ image: CIImage, amount: Float) -> CIImage {
