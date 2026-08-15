@@ -2,7 +2,7 @@
 //  CameraView.swift
 //  TCAM — Dark Luxury / Cinematic UI
 //  Optimized for iPhone 15 Pro Max (430×932pt, Dynamic Island)
-//  ✅ FIXED: glassEffect recursion bug → renamed to glassCard
+//  ✅ UPDATED: Works with AspectRatio enum + orientation-aware cropping
 //
 
 import SwiftUI
@@ -37,7 +37,7 @@ private enum DS {
     static let pillH: CGFloat            = 40
 }
 
-// MARK: - Glass Effect Modifiers (✅ FIXED: renamed to avoid recursion)
+// MARK: - Glass Effect Modifiers
 private extension View {
     @available(iOS 17.0, *)
     func glassCard(shape: GlassShape = .pill) -> some View {
@@ -45,7 +45,7 @@ private extension View {
         case .pill:
             return AnyView(
                 self
-                    .glassEffect()  // ✅ Now correctly calls SwiftUI's built-in modifier
+                    .glassEffect()
                     .clipShape(Capsule())
             )
         case .circle:
@@ -80,7 +80,9 @@ struct CameraView: View {
     @State private var pinchZoom: CGFloat       = 1.0
     @State private var lastPinchZoom: CGFloat   = 1.0
     @State private var zoomUpdateTask: Task<Void, Never>?
-    @State private var aspectRatio: CGFloat     = 4.0 / 3.0  // Default to 4:3 standard (can toggle to 16:9 cinematic)
+    
+    // ✅ UPDATED: Use AspectRatio enum instead of raw CGFloat
+    @State private var aspectRatio: CameraManager.AspectRatio = .standard
 
     // Animation states
     @State private var controlsVisible = false
@@ -134,7 +136,7 @@ struct CameraView: View {
                     exposurePresets: exposurePresets,
                     wideZoomToggle: $wideZoomToggle,
                     teleZoomToggle: $teleZoomToggle,
-                    aspectRatio: $aspectRatio,
+                    aspectRatio: $aspectRatio,  // ✅ Now binds to AspectRatio enum
                     onCapture: triggerShutterFeedback
                 )
                 .offset(y: controlsVisible ? 0 : 60)
@@ -143,8 +145,9 @@ struct CameraView: View {
             }
         }
         .background(.black)
+        // ✅ UPDATED: onChange now sets the enum directly
         .onChange(of: aspectRatio) { _, newValue in
-            camera.captureAspectRatio = newValue
+            camera.setAspectRatio(newValue)
         }
         .onChange(of: scenePhase) { camera.handleScenePhase($1) }
         .animation(.easeInOut(duration: 0.3), value: aspectRatio)
@@ -216,13 +219,12 @@ struct CameraView: View {
         default: break
         }
     }
-
 }
 
 // MARK: - Viewfinder
 private struct ViewfinderImage: View {
     let frame: CGImage?
-    let aspectRatio: CGFloat
+    let aspectRatio: CameraManager.AspectRatio  // ✅ Now uses enum
 
     var body: some View {
         GeometryReader { proxy in
@@ -247,9 +249,11 @@ private struct ViewfinderImage: View {
         .ignoresSafeArea()
     }
 
+    // ✅ UPDATED: Calculate display aspect ratio using orientedRatio
     private var displayAspectRatio: CGFloat {
-        guard aspectRatio > 0 else { return 1 }
-        return 1 / aspectRatio
+        // Use portrait as default for preview calculation
+        // The actual crop ratio is handled by CameraManager with device orientation
+        return 1.0 / aspectRatio.orientedRatio(for: .portrait)
     }
 }
 
@@ -276,7 +280,6 @@ struct ExposureInfoChip: View {
     private var shutterLabel: String {
         guard shutterSpeed > 0 else { return "—" }
         let denom = Int((1.0 / shutterSpeed).rounded())
-        // Fast shutter: show as fraction. Slow shutter (≥1s): show with ″ symbol
         return denom >= 2 ? "1/\(denom)" : String(format: "%.1f\"", shutterSpeed)
     }
  
@@ -313,7 +316,7 @@ private struct ControlPanel: View {
     let exposurePresets: [Float]
     @Binding var wideZoomToggle: CGFloat
     @Binding var teleZoomToggle: CGFloat
-    @Binding var aspectRatio: CGFloat
+    @Binding var aspectRatio: CameraManager.AspectRatio  // ✅ Enum binding
     let onCapture: () -> Void
 
     var body: some View {
@@ -381,62 +384,123 @@ private struct ExposureRow: View {
             }
         }
         .padding(4)
-        .glassCard(shape: .pill)  // ✅ FIXED: renamed from glassEffect
+        .glassCard(shape: .pill)
     }
 }
-
-// MARK: - Filter Row
+// MARK: - Filter Row (Liquid Glass / Apple Glass)
 private struct FilterRow: View {
     let filters: [TechnicolorProcess]
     var camera: CameraManager
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 18) {
             ForEach(filters) { filter in
                 let isSelected = camera.currentProcess == filter
+                
                 Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     withAnimation(.easeInOut(duration: 0.18)) {
                         camera.updateProcess(filter)
                     }
                 } label: {
-                    VStack(spacing: 3) {
-                        // Color swatch dot
+                    // 🪞 Liquid Glass circle
+                    ZStack {
+                        // Base glass circle with frosted blur effect
                         Circle()
-                            .fill(swatchColor(for: filter))
-                            .frame(width: 5, height: 5)
-                            .opacity(isSelected ? 1 : 0.4)
-
-                        Text(filter.rawValue.replacingOccurrences(of: "-", with: " ").uppercased())
-                            .font(DS.sansXs)
-                            .tracking(1.2)
-                            .foregroundStyle(isSelected ? DS.gold : DS.textDim)
-                            .lineLimit(1)
+                            .fill(Color.white.opacity(0.08))
+                            .overlay(
+                                Circle()
+                                    .stroke(
+                                        LinearGradient(
+                                            colors: [
+                                                Color.white.opacity(isSelected ? 0.35 : 0.18),
+                                                Color.white.opacity(isSelected ? 0.12 : 0.06)
+                                            ],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        ),
+                                        lineWidth: isSelected ? 1.5 : 1.0
+                                    )
+                            )
+                            .frame(width: 40, height: 40)
+                            .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+                        
+                        // Subtle colored tint glow (filter identity)
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        glassTint(for: filter).opacity(isSelected ? 0.35 : 0.18),
+                                        glassTint(for: filter).opacity(0)
+                                    ],
+                                    center: .center,
+                                    startRadius: 8,
+                                    endRadius: 28
+                                )
+                            )
+                            .frame(width: 40, height: 40)
+                        
+                        // Soft inner sheen highlight (liquid reflection)
+                        Circle()
+                            .fill(
+                                AngularGradient(
+                                    gradient: Gradient(colors: [
+                                        .white.opacity(0.12),
+                                        .white.opacity(0.03),
+                                        .clear
+                                    ]),
+                                    center: .center,
+                                    startAngle: .degrees(-45),
+                                    endAngle: .degrees(135)
+                                )
+                            )
+                            .frame(width: 36, height: 36)
+                        
+                        // Minimal center dot (filter indicator)
+                        Circle()
+                            .fill(glassTint(for: filter).opacity(isSelected ? 0.9 : 0.65))
+                            .frame(width: isSelected ? 14 : 12, height: isSelected ? 14 : 12)
+                            .shadow(
+                                color: glassTint(for: filter).opacity(isSelected ? 0.5 : 0.3),
+                                radius: isSelected ? 4 : 2,
+                                y: 1
+                            )
+                        
+                        // Subtle animated ring pulse on selection
+                        if isSelected {
+                            Circle()
+                                .stroke(glassTint(for: filter).opacity(0.45), lineWidth: 1)
+                                .frame(width: 48, height: 48)
+                                .scaleEffect(1.2)
+                                .opacity(0)
+                                .animation(
+                                    .easeOut(duration: 0.6).repeatForever(autoreverses: false),
+                                    value: isSelected
+                                )
+                        }
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(isSelected ? DS.gold.opacity(0.10) : Color.clear)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(isSelected ? DS.gold.opacity(0.45) : DS.border, lineWidth: 0.75)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .scaleEffect(isSelected ? 1.06 : 1.0)
+                    .animation(.easeOut(duration: 0.15), value: isSelected)
+                    .glassEffect()  // ✅ Apple-style frosted blur
                 }
-                .buttonStyle(ScaleButtonStyle(scale: 0.93))
+                .buttonStyle(ScaleButtonStyle(scale: 0.94))
+                .accessibilityLabel(filter.rawValue)
+                .accessibilityAddTraits(isSelected ? .isSelected : .isButton)
             }
         }
+        .padding(.vertical, 6)
     }
 
-    private func swatchColor(for filter: TechnicolorProcess) -> Color {
+    // 🎨 Dark luxury glass tint colors (subtle, elegant)
+    private func glassTint(for filter: TechnicolorProcess) -> Color {
         switch filter {
-        case .cinematic: return Color(red: 0.4, green: 0.7, blue: 0.9)      // cool cyan-blue
-        case .twoStrip:  return Color(red: 0.85, green: 0.50, blue: 0.40)  // warm red
-        case .monopack:  return Color(red: 0.70, green: 0.70, blue: 0.70)  // silver
-        case .threeStrip:return Color(red: 0.45, green: 0.72, blue: 0.58)  // teal-green
-        default:         return Color.white.opacity(0.4)
+        case .cinematic:  return Color(red: 0.12, green: 0.38, blue: 0.78)    // deep sapphire blue
+        case .twoStrip:   return Color(red: 0.82, green: 0.45, blue: 0.18)    // rich amber
+        case .monopack:   return Color(red: 0.92, green: 0.78, blue: 0.22)    // warm golden yellow
+        case .threeStrip: return Color(red: 0.95, green: 0.48, blue: 0.22)    // deep burnt orange
         }
     }
 }
-
 // MARK: - Lens Row
 private struct LensRow: View {
     var camera: CameraManager
@@ -489,7 +553,7 @@ private struct LensRow: View {
             }
         }
         .frame(height: DS.pillH)
-        .glassCard(shape: .pill)  // ✅ FIXED: renamed from glassEffect
+        .glassCard(shape: .pill)
     }
 
     private func isLensActive(_ logicalZoom: CGFloat) -> Bool {
@@ -536,7 +600,7 @@ private struct SegmentDivider: View {
 private struct ShutterRow: View {
     var camera: CameraManager
     let onCapture: () -> Void
-    @Binding var aspectRatio: CGFloat
+    @Binding var aspectRatio: CameraManager.AspectRatio  // ✅ Enum binding
 
     var body: some View {
         HStack(alignment: .center) {
@@ -552,19 +616,19 @@ private struct ShutterRow: View {
 
             // Aspect Ratio Toggle + Flash
             HStack(spacing: 8) {
-                // Aspect Ratio Toggle
+                // ✅ UPDATED: Cycle through AspectRatio enum cases
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
-                        aspectRatio = aspectRatio == 16.0 / 9.0 ? 4.0 / 3.0 : 16.0 / 9.0
+                        aspectRatio = aspectRatio.next
                     }
                 } label: {
-                    Text(aspectRatio == 16.0 / 9.0 ? "16:9" : "4:3")
+                    Text(aspectRatio.displayLabel)
                         .font(DS.monoSm)
-                        .foregroundStyle(aspectRatio == 16.0 / 9.0 ? DS.gold : DS.textDim)
+                        .foregroundStyle(aspectRatio == .widescreen ? DS.gold : DS.textDim)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(aspectRatio == 16.0 / 9.0 ? DS.scrim : Color.clear)
-                        .overlay(Capsule().stroke(aspectRatio == 16.0 / 9.0 ? DS.gold.opacity(0.35) : DS.border, lineWidth: 0.75))
+                        .background(aspectRatio == .widescreen ? DS.scrim : Color.clear)
+                        .overlay(Capsule().stroke(aspectRatio == .widescreen ? DS.gold.opacity(0.35) : DS.border, lineWidth: 0.75))
                         .clipShape(Capsule())
                 }
                 .buttonStyle(ScaleButtonStyle(scale: 0.94))
@@ -666,7 +730,7 @@ private struct FlashButton: View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .glassCard(shape: .circle)  // ✅ FIXED: renamed from glassEffect
+                    .glassCard(shape: .circle)
                     .frame(width: 48, height: 48)
                 Image(systemName: isOn ? "bolt.fill" : "bolt.slash")
                     .font(.system(size: 17, weight: .medium))
@@ -691,7 +755,7 @@ struct ThumbnailView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.92)))
             } else {
                 RoundedRectangle(cornerRadius: 10)
-                    .glassCard(shape: .card)  // ✅ FIXED: renamed from glassEffect
+                    .glassCard(shape: .card)
                     .overlay(
                         Image(systemName: "photo")
                             .font(.system(size: 15))
@@ -715,5 +779,25 @@ struct ScaleButtonStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? scale : 1.0)
             .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
+// MARK: - AspectRatio UI Extensions
+// ✅ Helper extensions for AspectRatio enum in UI
+private extension CameraManager.AspectRatio {
+    /// User-friendly display label for the toggle button
+    var displayLabel: String {
+        switch self {
+        case .standard:   return "4:3"
+        case .widescreen: return "16:9"
+        case .cinematic:  return "2.39:1"
+        }
+    }
+    
+    /// Cycle to next aspect ratio in the sequence
+    var next: CameraManager.AspectRatio {
+        let all = CameraManager.AspectRatio.allCases
+        guard let idx = all.firstIndex(of: self) else { return .standard }
+        return all[(idx + 1) % all.count]
     }
 }

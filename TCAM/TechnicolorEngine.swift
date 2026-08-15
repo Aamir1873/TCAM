@@ -5,8 +5,11 @@
 
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import Foundation
 
 final class TechnicolorEngine: Sendable {
+
+    private let filterLock = NSLock()
 
     let context: CIContext = {
         CIContext(options: [
@@ -82,6 +85,8 @@ final class TechnicolorEngine: Sendable {
     }
 
     func apply(_ process: TechnicolorProcess, to image: CIImage) -> CIImage {
+        filterLock.lock()
+        defer { filterLock.unlock() }
         switch process {
         case .cinematic:  cinematic(image)
         case .threeStrip: threeStrip(image)

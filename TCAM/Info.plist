@@ -53,6 +53,6 @@
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>TCAM needs permission to save your edited photos to the photo library.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>TCAM NEED LOCATION FOR LOCATION</string>
+	<string>TCAM uses your location to show where photos were taken.</string>
 </dict>
 </plist>
