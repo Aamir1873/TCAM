@@ -261,7 +261,7 @@ private struct ViewfinderImage: View {
     private var displayAspectRatio: CGFloat {
         // Use portrait as default for preview calculation
         // The actual crop ratio is handled by CameraManager with device orientation
-        return 1.0 / aspectRatio.orientedRatio(for: .portrait)
+        return aspectRatio.ratio
     }
 }
 
@@ -837,9 +837,8 @@ private extension CameraManager.AspectRatio {
     /// User-friendly display label for the toggle button
     var displayLabel: String {
         switch self {
-        case .standard:   return "4:3"
-        case .widescreen: return "16:9"
-        case .cinematic:  return "2.39:1"
+        case .standard: return "4:3"
+        case .portrait: return "3:4"
         }
     }
     

@@ -17,30 +17,19 @@ final class CameraManager {
     
     // MARK: - Aspect Ratio Support
     enum AspectRatio: CaseIterable {
-        case standard      // 4:3
-        case widescreen    // 16:9
-        case cinematic     // 2.39:1 (~21:9)
+        case standard       // 4:3
+        case portrait       // 3:4
         
         var ratio: CGFloat {
             switch self {
-            case .standard:   return 4.0 / 3.0
-            case .widescreen: return 16.0 / 9.0
-            case .cinematic:  return 2.39
+            case .standard: return 4.0 / 3.0
+            case .portrait: return 3.0 / 4.0
             }
         }
         
-        /// Returns the ratio oriented for the current device orientation
+        /// Returns the explicitly selected output ratio.
         func orientedRatio(for orientation: UIDeviceOrientation) -> CGFloat {
-            switch orientation {
-            case .portrait, .portraitUpsideDown:
-                // Portrait: invert ratio so height > width (e.g., 4:3 → 3:4)
-                return 1.0 / ratio
-            case .landscapeLeft, .landscapeRight:
-                // Landscape: use ratio as-is (width > height)
-                return ratio
-            default:
-                return ratio
-            }
+            ratio
         }
     }
     
